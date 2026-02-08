@@ -17,6 +17,7 @@ from neurocode.services.code_analyzer import CodeAnalyzer
 from neurocode.services.storage import StorageService
 from neurocode.services.vectorizer import Vectorizer
 from neurocode.services.llm_service import LLMService
+from neurocode.services.s3_service import S3Service
 
 app = FastAPI(
     title="NeuroCode Python API",
@@ -43,6 +44,17 @@ app.add_middleware(
 github_fetcher = GitHubFetcher()
 code_analyzer = CodeAnalyzer()
 storage_service = StorageService(base_dir="data")
+
+# Initialize S3 service (will fail if AWS credentials not set)
+try:
+    s3_service = S3Service()
+    print("[S3Service] ✓ S3 service initialized")
+except ValueError as e:
+    print(f"[Warning] S3 service not initialized: {e}")
+    s3_service = None
+except Exception as e:
+    print(f"[Warning] S3 service initialization failed: {e}")
+    s3_service = None
 
 # Load Qdrant configuration from environment
 qdrant_url = os.getenv("QDRANT_URL") or None
@@ -514,8 +526,49 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         
         print(f"✓ Documentation generated ({len(documentation)} characters)")
         
-        # Step 8: Save documentation locally
-        print(f"\n[Step 8/8] Saving documentation to local storage...")
+        # Extract title from documentation content
+        def extract_title(doc_content: str, prompt: str) -> str:
+            """Extract a title from documentation content"""
+            import re
+            
+            # Try to find the first heading (# or ##)
+            heading_match = re.search(r'^#+\s+(.+)$', doc_content, re.MULTILINE)
+            if heading_match:
+                title = heading_match.group(1).strip()
+                # Remove markdown formatting from title
+                title = re.sub(r'\*\*|__|`', '', title)
+                if len(title) > 0 and len(title) <= 100:
+                    return title
+            
+            # If no heading, try to extract first sentence from first paragraph
+            lines = doc_content.strip().split('\n')
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith('#') and not line.startswith('```'):
+                    # Remove markdown formatting
+                    line = re.sub(r'\*\*|__|`|#', '', line)
+                    # Get first sentence (up to 100 chars)
+                    sentences = re.split(r'[.!?]\s+', line)
+                    if sentences and sentences[0]:
+                        title = sentences[0].strip()
+                        if len(title) > 0:
+                            return title[:100]
+            
+            # Fallback: use a shortened version of the prompt
+            if prompt:
+                # Take first 60 chars of prompt
+                title = prompt[:60].strip()
+                if len(title) < len(prompt):
+                    title += "..."
+                return title
+            
+            return "Documentation"
+        
+        doc_title = extract_title(documentation, request.prompt)
+        print(f"✓ Extracted title: {doc_title}")
+        
+        # Step 8: Save documentation locally (for backup/reference)
+        print(f"\n[Step 8/9] Saving documentation to local storage...")
         doc_metadata = {
             "collection_name": collection_name,
             "chunks_used": len(search_results),
@@ -538,13 +591,67 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         )
         
         print(f"✓ Documentation saved to: {doc_saved_paths['documentation_file']}")
+        
+        # Step 9: Upload documentation to S3
+        s3_result = None
+        s3_key = None
+        if s3_service:
+            print(f"\n[Step 9/9] Uploading documentation to S3...")
+            
+            # Generate S3 key
+            # Use organization_id and repository_id from request
+            if not request.organization_id or not request.repository_id:
+                print("⚠ Missing organization_id or repository_id, skipping S3 upload")
+            else:
+                # Generate unique documentation ID (use timestamp)
+                from datetime import datetime
+                import json
+                doc_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                s3_key = s3_service.generate_s3_key(
+                    organization_id=request.organization_id,
+                    repository_id=request.repository_id,
+                    branch=request.branch,
+                    scope="custom",  # RAG docs are always custom
+                    documentation_id=doc_id,
+                    file_extension="json"  # Store as JSON
+                )
+                
+                # Wrap documentation in JSON structure
+                documentation_json = {
+                    "content": documentation,  # Raw documentation output
+                    "generated_at": datetime.now().isoformat(),
+                    "prompt": request.prompt,
+                    "repository": request.repo_full_name,
+                    "branch": request.branch,
+                    "scope": "custom"
+                }
+                
+                # Convert to JSON string
+                documentation_json_str = json.dumps(documentation_json, indent=2)
+                
+                # Upload to S3
+                s3_result = s3_service.upload_documentation(
+                    content=documentation_json_str,
+                    s3_key=s3_key,
+                    content_type="application/json"
+                )
+                
+                if s3_result.get("success"):
+                    print(f"✓ Documentation uploaded to S3: {s3_result['s3_key']}")
+                    print(f"  Size: {s3_result['content_size']} bytes")
+                else:
+                    print(f"⚠ S3 upload failed: {s3_result.get('error')}")
+        else:
+            print(f"\n[Step 9/9] S3 service not available, skipping S3 upload")
+        
         print("="*60 + "\n")
         
         # Return results
-        return {
+        result = {
             "success": True,
-            "documentation": documentation,
             "prompt": request.prompt,
+            "title": doc_title,  # Include extracted title
             "repository": request.repo_full_name,
             "branch": request.branch,
             "collection_name": collection_name,
@@ -553,6 +660,22 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
             "saved_paths": doc_saved_paths,
             "chunks": doc_metadata["chunks"]
         }
+        
+        # Include S3 information if upload was successful
+        if s3_result and s3_result.get("success"):
+            result["s3"] = {
+                "s3_key": s3_result["s3_key"],
+                "s3_bucket": s3_service.bucket_name,  # Use bucket name from service
+                "s3_url": s3_result["s3_url"],
+                "content_size": s3_result["content_size"]
+            }
+            # Don't include full documentation in response if S3 upload succeeded
+            # Frontend will fetch from S3 using the key
+        else:
+            # If S3 upload failed, include documentation in response as fallback
+            result["documentation"] = documentation
+        
+        return result
         
     except HTTPException as e:
         print(f"[ERROR] RAG generation failed: {e.detail}")
