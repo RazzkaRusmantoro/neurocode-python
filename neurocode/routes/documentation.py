@@ -1,0 +1,1007 @@
+"""
+Documentation generation endpoints
+"""
+from fastapi import APIRouter, HTTPException
+from typing import Optional, List, Dict, Any
+import re
+import json
+from datetime import datetime
+
+from neurocode.models.schemas import (
+    GenerateDocumentationRequest,
+    GenerateDocsRAGRequest,
+    GetDocumentationRequest
+)
+from neurocode.config import (
+    github_fetcher,
+    code_analyzer,
+    storage_service,
+    vectorizer,
+    llm_service,
+    s3_service,
+    mongodb_service
+)
+
+router = APIRouter()
+
+
+@router.post("/api/generate-documentation")
+async def generate_documentation(request: GenerateDocumentationRequest):
+    """
+    Generate documentation for a GitHub repository
+    
+    Full pipeline:
+    1. Fetch files from GitHub
+    2. Parse code (extract symbols, dependencies, calls)
+    3. Chunk code (create semantic chunks for vectorization)
+    4. Save results locally
+    
+    Args:
+        request: GenerateDocumentationRequest with:
+            - github_token: GitHub access token
+            - repo_full_name: Repository full name (e.g., "owner/repo")
+            - branch: Branch name (default: "main")
+            - scope: Documentation scope (default: "repository")
+            - target: Optional target path/module
+    
+    Returns:
+        Documentation generation results with saved file paths
+    """
+    try:
+        print("\n" + "="*60)
+        print("DOCUMENTATION GENERATION PIPELINE")
+        print("="*60)
+        print(f"Repository: {request.repo_full_name}")
+        print(f"Branch: {request.branch}")
+        print(f"Scope: {request.scope}")
+        print(f"Target: {request.target or 'N/A'}")
+        print("="*60)
+        
+        # Step 1: Determine path based on scope and target
+        path = ""
+        if request.target:
+            path = request.target
+        
+        # Step 2: Fetch repository files
+        print("\n[Step 1/5] Fetching files from GitHub...")
+        files = await github_fetcher.fetch_repository_files(
+            repo_full_name=request.repo_full_name,
+            access_token=request.github_token,
+            branch=request.branch,
+            path=path,
+        )
+        print(f"✓ Fetched {len(files)} files")
+        
+        if len(files) == 0:
+            return {
+                "success": False,
+                "message": "No files found in repository",
+                "repository": request.repo_full_name,
+                "branch": request.branch,
+            }
+        
+        # Step 3: Parse and chunk code
+        print("\n[Step 2/5] Parsing code structure...")
+        print("[Step 3/5] Creating semantic chunks...")
+        
+        # Prepare files for analyzer
+        files_for_analysis = [
+            {
+                "path": file["path"],
+                "content": file["content"],
+                "language": file.get("language")
+            }
+            for file in files
+        ]
+        
+        # Analyze and chunk
+        analysis_results = await code_analyzer.analyze_and_chunk(
+            files_for_analysis,
+            chunking_strategy="hybrid"  # Use hybrid strategy for best results
+        )
+        
+        print(f"✓ Parsed {analysis_results['metadata']['totalFunctions']} functions")
+        print(f"✓ Created {analysis_results['metadata']['totalChunks']} chunks")
+        
+        # Step 4: Save results locally
+        print("\n[Step 4/5] Saving results to local storage...")
+        saved_paths = storage_service.save_analysis_results(
+            repo_full_name=request.repo_full_name,
+            branch=request.branch,
+            results=analysis_results
+        )
+        
+        print(f"✓ Results saved to: {saved_paths['directory']}")
+        
+        # Step 5: Vectorize chunks
+        print("\n[Step 5/5] Vectorizing chunks...")
+        # Create collection name using NeuroCode platform org and repo names
+        # Format: {org_name}_{org_slug_id}_{repo_name}_{branch}
+        # MUST use platform names, NOT GitHub names!
+        
+        # Sanitize names for collection name (remove special chars, spaces, etc.)
+        def sanitize_name(name: str) -> str:
+            """Sanitize name for use in collection name"""
+            if not name:
+                return ""
+            # Replace spaces, slashes, dots, hyphens with underscores
+            sanitized = name.replace(' ', '_').replace('/', '_').replace('.', '_').replace('-', '_')
+            # Remove any remaining special characters except alphanumeric and underscore
+            sanitized = ''.join(c if c.isalnum() or c == '_' else '_' for c in sanitized)
+            # Remove multiple consecutive underscores
+            sanitized = '_'.join(filter(None, sanitized.split('_')))
+            return sanitized.lower()
+        
+        # Build collection name: {org_name}_{org_slug_id}_{repo_name}_{branch}
+        # REQUIRED: Must have org_slug_id and repo_name from platform, otherwise raise error
+        
+        # Get org name (prefer organization_name, fallback to short_id)
+        org_name_safe = ""
+        if request.organization_name:
+            org_name_safe = sanitize_name(request.organization_name)
+        elif request.organization_short_id:
+            org_name_safe = sanitize_name(request.organization_short_id)
+        else:
+            # If no org name or short_id, we can't create proper collection name
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required fields: organization_name or organization_short_id must be provided for collection naming"
+            )
+        
+        # Get org slug ID (REQUIRED - must have short_id)
+        org_slug_safe = ""
+        if request.organization_short_id:
+            org_slug_safe = sanitize_name(request.organization_short_id)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required field: organization_short_id must be provided for collection naming"
+            )
+        
+        # Get repo name (REQUIRED - must have repository_name from platform)
+        repo_name_safe = ""
+        if request.repository_name:
+            repo_name_safe = sanitize_name(request.repository_name)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required field: repository_name must be provided for collection naming. Cannot use GitHub repo name."
+            )
+        
+        # Build collection name: {org_name}_{org_slug_id}_{repo_name}_{branch}
+        collection_name = f"{org_name_safe}_{org_slug_safe}_{repo_name_safe}_{request.branch}"
+        
+        print(f"[Collection Name] Using platform names: {collection_name}")
+        print(f"  - Org Name: {org_name_safe}")
+        print(f"  - Org Slug: {org_slug_safe}")
+        print(f"  - Repo Name: {repo_name_safe}")
+        print(f"  - Branch: {request.branch}")
+        
+        # Prepare metadata to link collection to org and repo
+        collection_metadata = {}
+        if request.organization_id:
+            collection_metadata["organization_id"] = request.organization_id
+        if request.organization_short_id:
+            collection_metadata["organization_short_id"] = request.organization_short_id
+        if request.repository_id:
+            collection_metadata["repository_id"] = request.repository_id
+        collection_metadata["repo_full_name"] = request.repo_full_name
+        collection_metadata["branch"] = request.branch
+        
+        vectorization_result = vectorizer.vectorize_chunks_from_file(
+            chunks_file_path=saved_paths["files"]["chunks"],
+            collection_name=collection_name,
+            metadata=collection_metadata
+        )
+        
+        if vectorization_result.get("success"):
+            print(f"✓ Vectorized {vectorization_result['chunks_vectorized']} chunks")
+            print(f"✓ Collection: {vectorization_result['collection_name']}")
+            print(f"✓ Total in collection: {vectorization_result['total_in_collection']}")
+        else:
+            print(f"⚠ Vectorization had issues: {vectorization_result.get('message')}")
+        
+        print("="*60 + "\n")
+        
+        # Return results
+        return {
+            "success": True,
+            "repository": request.repo_full_name,
+            "branch": request.branch,
+            "scope": request.scope,
+            "target": request.target,
+            "files_count": len(files),
+            "metadata": analysis_results["metadata"],
+            "saved_paths": saved_paths,
+            "vectorization": vectorization_result if vectorization_result.get("success") else None,
+            "message": "Analysis complete. Results saved locally and vectorized."
+        }
+    except Exception as e:
+        print(f"\n[ERROR] Failed to generate documentation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate documentation: {str(e)}"
+        )
+
+
+@router.post("/api/generate-docs-rag")
+async def generate_docs_rag(request: GenerateDocsRAGRequest):
+    """
+    Generate documentation using RAG (Retrieval Augmented Generation)
+    
+    Full pipeline (same as generate-documentation, then RAG):
+    1. Fetch files from GitHub
+    2. Parse code (extract symbols, dependencies, calls)
+    3. Chunk code (create semantic chunks for vectorization)
+    4. Save results locally
+    5. Vectorize chunks (if not already done)
+    6. Search vector DB for relevant chunks based on user prompt
+    7. Generate documentation with Claude using retrieved chunks
+    8. Return generated documentation
+    """
+    try:
+        if not llm_service:
+            raise HTTPException(
+                status_code=500,
+                detail="LLM service not available. Please set ANTHROPIC_API_KEY environment variable."
+            )
+        
+        print("\n" + "="*60)
+        print("RAG DOCUMENTATION GENERATION (FULL PIPELINE)")
+        print("="*60)
+        print(f"Repository: {request.repo_full_name}")
+        print(f"Branch: {request.branch}")
+        print(f"Prompt: {request.prompt}")
+        print("="*60)
+        
+        # Step 1: Fetch repository files (same as generate-documentation)
+        print("\n[Step 1/10] Fetching files from GitHub...")
+        files = await github_fetcher.fetch_repository_files(
+            repo_full_name=request.repo_full_name,
+            access_token=request.github_token,
+            branch=request.branch,
+            path="",
+        )
+        print(f"✓ Fetched {len(files)} files")
+        
+        if len(files) == 0:
+            return {
+                "success": False,
+                "message": "No files found in repository",
+                "repository": request.repo_full_name,
+                "branch": request.branch,
+            }
+        
+        # Step 2 & 3: Parse and chunk code (same as generate-documentation)
+        print("\n[Step 2/10] Parsing code structure...")
+        print("[Step 3/10] Creating semantic chunks...")
+        
+        # Prepare files for analyzer
+        files_for_analysis = [
+            {
+                "path": file["path"],
+                "content": file["content"],
+                "language": file.get("language")
+            }
+            for file in files
+        ]
+        
+        # Analyze and chunk
+        analysis_results = await code_analyzer.analyze_and_chunk(
+            files_for_analysis,
+            chunking_strategy="hybrid"  # Use hybrid strategy for best results
+        )
+        
+        print(f"✓ Parsed {analysis_results['metadata']['totalFunctions']} functions")
+        print(f"✓ Created {analysis_results['metadata']['totalChunks']} chunks")
+        
+        # Step 4: Save results locally (same as generate-documentation)
+        print("\n[Step 4/10] Saving results to local storage...")
+        saved_paths = storage_service.save_analysis_results(
+            repo_full_name=request.repo_full_name,
+            branch=request.branch,
+            results=analysis_results
+        )
+        print(f"✓ Results saved to: {saved_paths['directory']}")
+        
+        # Step 5: Vectorize chunks (same as generate-documentation)
+        print("\n[Step 5/10] Vectorizing chunks...")
+        # Build collection name using NeuroCode platform org and repo names
+        def sanitize_name(name: str) -> str:
+            if not name:
+                return ""
+            sanitized = name.replace(' ', '_').replace('/', '_').replace('.', '_').replace('-', '_')
+            sanitized = ''.join(c if c.isalnum() or c == '_' else '_' for c in sanitized)
+            sanitized = '_'.join(filter(None, sanitized.split('_')))
+            return sanitized.lower()
+        
+        # Build collection name
+        if not request.organization_short_id:
+            raise HTTPException(
+                status_code=400,
+                detail="organization_short_id is required for collection naming"
+            )
+        if not request.repository_name:
+            raise HTTPException(
+                status_code=400,
+                detail="repository_name is required for collection naming"
+            )
+        
+        org_name_safe = sanitize_name(request.organization_name or request.organization_short_id)
+        org_slug_safe = sanitize_name(request.organization_short_id)
+        repo_name_safe = sanitize_name(request.repository_name)
+        collection_name = f"{org_name_safe}_{org_slug_safe}_{repo_name_safe}_{request.branch}"
+        
+        # Prepare metadata to link collection to org and repo
+        collection_metadata = {}
+        if request.organization_id:
+            collection_metadata["organization_id"] = request.organization_id
+        if request.organization_short_id:
+            collection_metadata["organization_short_id"] = request.organization_short_id
+        if request.repository_id:
+            collection_metadata["repository_id"] = request.repository_id
+        collection_metadata["repo_full_name"] = request.repo_full_name
+        collection_metadata["branch"] = request.branch
+        
+        # Vectorize chunks (will create collection if doesn't exist, or update if exists)
+        vectorization_result = vectorizer.vectorize_chunks_from_file(
+            chunks_file_path=saved_paths["files"]["chunks"],
+            collection_name=collection_name,
+            metadata=collection_metadata
+        )
+        
+        if vectorization_result.get("success"):
+            print(f"✓ Vectorized {vectorization_result['chunks_vectorized']} chunks")
+            print(f"✓ Collection: {vectorization_result['collection_name']}")
+        else:
+            print(f"⚠ Vectorization had issues: {vectorization_result.get('message')}")
+        
+        # Step 6: Search vector DB for relevant chunks based on prompt
+        print(f"\n[Step 6/10] Searching vector DB for relevant chunks...")
+        print(f"Query: {request.prompt}")
+        
+        # Search vector DB for relevant chunks
+        search_results = vectorizer.search(
+            collection_name=collection_name,
+            query=request.prompt,
+            top_k=request.top_k or 10
+        )
+        
+        if not search_results:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No chunks found in collection '{collection_name}'"
+            )
+        
+        print(f"✓ Found {len(search_results)} relevant chunks")
+        
+        # Step 7: Generate structured documentation using LLM
+        print(f"\n[Step 7/10] Generating structured documentation with Claude...")
+        structured_result = llm_service.generate_structured_documentation(
+            prompt=request.prompt,
+            context_chunks=search_results,
+            repo_name=request.repository_name or request.repo_full_name
+        )
+        
+        documentation = structured_result.get("documentation", {"sections": []})
+        # Get IDs from LLM (JSON only has IDs)
+        code_reference_ids_from_llm = structured_result.get("code_reference_ids", [])
+        
+        # Validate limits
+        sections = documentation.get("sections", [])
+        def count_all_sections(sections_list):
+            """Count all sections including subsections"""
+            count = len(sections_list)
+            for section in sections_list:
+                subsections = section.get("subsections", [])
+                if subsections:
+                    count += count_all_sections(subsections)
+            return count
+        
+        total_sections = count_all_sections(sections)
+        if total_sections > 5:
+            print(f"  ⚠ Warning: {total_sections} sections found, limiting to 5")
+            # Keep only first 5 sections (simplified - could be smarter)
+            documentation["sections"] = sections[:5]
+        
+        if len(code_reference_ids_from_llm) > 10:
+            print(f"  ⚠ Warning: {len(code_reference_ids_from_llm)} code references found, limiting to 10")
+            code_reference_ids_from_llm = code_reference_ids_from_llm[:10]
+        
+        # Extract code reference details
+        code_reference_details = []
+        
+        for ref_id in code_reference_ids_from_llm:
+            matched = False
+            for chunk in search_results:
+                metadata = chunk.get("metadata", {})
+                function_name = metadata.get("function_name", "")
+                class_name = metadata.get("class_name", "")
+                method_name = metadata.get("method_name", "")
+                file_path = metadata.get("file_path", "")
+                content = chunk.get("content", "")
+                
+                # Match by name
+                matched_name = None
+                ref_type = None
+                
+                if function_name and (ref_id.lower() == function_name.lower() or ref_id.lower().replace("_", "") == function_name.lower().replace("_", "")):
+                    matched_name = function_name
+                    ref_type = "function"
+                elif class_name and (ref_id.lower() == class_name.lower() or ref_id.lower().replace("_", "") == class_name.lower().replace("_", "")):
+                    matched_name = class_name
+                    ref_type = "class"
+                elif method_name and (ref_id.lower() == method_name.lower() or ref_id.lower().replace("_", "") == method_name.lower().replace("_", "")):
+                    matched_name = method_name
+                    ref_type = "method"
+                
+                if matched_name:
+                    # Extract the actual code snippet (raw code)
+                    code_snippet = None
+                    start_line = metadata.get("start_line", 0)
+                    end_line = metadata.get("end_line", 0)
+                    
+                    if start_line and end_line and start_line > 0:
+                        lines = content.split('\n')
+                        if len(lines) >= end_line:
+                            code_snippet = '\n'.join(lines[start_line-1:end_line])
+                    
+                    # If line-based extraction didn't work, try pattern matching
+                    if not code_snippet or len(code_snippet.strip()) < 10:
+                        if ref_type in ["function", "method"]:
+                            func_patterns = [
+                                r'(?:function|const|async\s+function)\s+' + re.escape(matched_name) + r'[^{]*\{[^}]*\}',
+                                r'def\s+' + re.escape(matched_name) + r'\([^)]*\):.*?(?=\n\s*(?:def|class|\Z))',
+                            ]
+                            for pattern in func_patterns:
+                                match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
+                                if match:
+                                    code_snippet = match.group(0).strip()
+                                    break
+                        elif ref_type == "class":
+                            class_patterns = [
+                                r'class\s+' + re.escape(matched_name) + r'[^{]*\{[^}]*\}',
+                                r'class\s+' + re.escape(matched_name) + r'.*?(?=\n\s*(?:class|def|\Z))',
+                            ]
+                            for pattern in class_patterns:
+                                match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
+                                if match:
+                                    code_snippet = match.group(0).strip()
+                                    break
+                    
+                    # If still no code, use the entire chunk content as fallback
+                    if not code_snippet or len(code_snippet.strip()) < 10:
+                        code_snippet = content[:5000]  # Limit to 5000 chars
+                    
+                    # Extract parameters for functions/methods
+                    parameters = []
+                    if ref_type in ["function", "method"]:
+                        sig_patterns = [
+                            r'function\s+' + re.escape(matched_name) + r'\s*\(([^)]*)\)',
+                            r'const\s+' + re.escape(matched_name) + r'\s*=\s*(?:async\s+)?\(([^)]*)\)',
+                            r'def\s+' + re.escape(matched_name) + r'\s*\(([^)]*)\)',
+                            r'(?:public|private|protected)?\s*(?:async\s+)?' + re.escape(matched_name) + r'\s*\(([^)]*)\)',
+                        ]
+                        
+                        for pattern in sig_patterns:
+                            match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
+                            if match:
+                                params_str = match.group(1).strip()
+                                if params_str:
+                                    param_list = []
+                                    current_param = ""
+                                    depth = 0
+                                    for char in params_str:
+                                        if char in '([{':
+                                            depth += 1
+                                        elif char in ')]}':
+                                            depth -= 1
+                                        elif char == ',' and depth == 0:
+                                            if current_param.strip():
+                                                param_list.append(current_param.strip())
+                                            current_param = ""
+                                            continue
+                                        current_param += char
+                                    if current_param.strip():
+                                        param_list.append(current_param.strip())
+                                    
+                                    for param in param_list:
+                                        param = param.strip()
+                                        if not param or param in ['...', '...rest', '...args']:
+                                            continue
+                                        
+                                        param_name = param.split(':')[0].split('=')[0].split('?')[0].strip()
+                                        
+                                        default_value = None
+                                        if '=' in param:
+                                            default_part = param.split('=', 1)[1].strip()
+                                            default_part = re.sub(r'^[^=]*=', '', default_part, count=1) if ':' in param else default_part
+                                            default_value = default_part.split(',')[0].strip() if default_part else None
+                                        
+                                        if param_name:
+                                            try:
+                                                param_prompt = f"""Given this function parameter from the code:
+
+Parameter: {param_name}
+Full parameter definition: {param}
+Function: {matched_name}
+Code context:
+{content[:2000]}
+
+Generate a clear, documentation-style description for this parameter (1-2 sentences). Describe what the parameter is used for and its purpose in the function. Write it in a professional documentation format, similar to scikit-learn or Python documentation.
+
+Example format:
+"The number of samples to draw from the dataset. Must be greater than 0."
+
+Description:"""
+                                                
+                                                param_response = llm_service.client.messages.create(
+                                                    model=llm_service.model,
+                                                    max_tokens=150,
+                                                    messages=[{
+                                                        "role": "user",
+                                                        "content": param_prompt
+                                                    }]
+                                                )
+                                                
+                                                if param_response.content and len(param_response.content) > 0:
+                                                    param_description = param_response.content[0].text.strip()
+                                                    param_description = param_description.split('\n')[0].strip()
+                                                    param_description = param_description.strip('"').strip("'")
+                                                else:
+                                                    param_description = f"The {param_name.replace('_', ' ')} parameter."
+                                            except Exception as e:
+                                                param_description = f"The {param_name.replace('_', ' ')} parameter."
+                                            
+                                            parameters.append({
+                                                "name": param_name,
+                                                "description": param_description,
+                                                "default": default_value
+                                            })
+                                break
+                    
+                    # Extract description from docstrings/comments
+                    description = None
+                    
+                    doc_patterns = [
+                        (r'/\*\*([\s\S]*?)\*/', lambda m: m.group(1)),  # JSDoc
+                        (r'"""([\s\S]*?)"""', lambda m: m.group(1)),  # Python docstring
+                        (r"'''([\s\S]*?)'''", lambda m: m.group(1)),  # Python docstring
+                    ]
+                    
+                    for pattern, extractor in doc_patterns:
+                        matches = re.findall(pattern, content, re.MULTILINE | re.DOTALL)
+                        if matches:
+                            doc = matches[0] if isinstance(matches[0], str) else extractor(matches[0]) if matches[0] else ""
+                            if doc:
+                                doc = re.sub(r'^\s*\*\s*', '', doc, flags=re.MULTILINE)
+                                doc = doc.strip()
+                                if doc and len(doc) > 20:
+                                    description = doc[:800]
+                                    break
+                    
+                    # If no docstring or description is too short, generate a proper description
+                    if not description or len(description) < 50:
+                        try:
+                            description_prompt = f"""Generate a concise but detailed description for this {ref_type} from the codebase.
+
+{ref_type.capitalize()} name: {matched_name}
+File: {file_path}
+
+Code:
+{content[:2000]}
+Generate a description similar to scikit-learn documentation style. Be specific about what it does, its purpose, and key functionality. Keep it concise but informative (2-4 sentences max).
+
+**CRITICAL INSTRUCTIONS - READ CAREFULLY:**
+1. Do NOT include the {ref_type} name at the beginning. Just describe what it does.
+2. **ABSOLUTELY FORBIDDEN: DO NOT copy ANY text from the code, including:**
+   - Prompt strings (f-strings with instructions like "You are an expert...")
+   - Docstrings or comments
+   - Instruction text
+   - Any string literals
+   - Template text
+3. **YOU MUST: Analyze the FUNCTION'S BEHAVIOR, not its text content:**
+   - What API does it call? (e.g., "calls OpenAI API")
+   - What does it process? (e.g., "processes metadata")
+   - What does it return? (e.g., "returns formatted citations")
+   - What is its purpose? (e.g., "generates academic citations")
+4. **If you see prompt strings in the code, they are DATA the function uses, NOT the function's description.**
+   - Example: If code has `prompt = "You are an expert..."`, DO NOT copy that.
+   - Instead, say: "Generates formatted citations using AI based on metadata"
+5. Write COMPLETELY ORIGINAL descriptions based on code logic analysis, never copy text from code.
+
+Example format (correct):
+"A sequence of data transformers with an optional final predictor. Pipeline allows you to sequentially apply a list of transformers to preprocess the data and, if desired, conclude the sequence with a final predictor for predictive modeling."
+
+Example format (wrong - do NOT do this):
+"Pipeline: A sequence of data transformers..."
+
+Example of what NOT to do (copying prompt strings):
+If the code has: `prompt = "You are an expert..."` - DO NOT copy that prompt. Instead, describe that the function generates citations using AI.
+
+Description:"""
+                            
+                            llm_response = llm_service.client.messages.create(
+                                model=llm_service.model,
+                                max_tokens=300,
+                                system="You are a technical documentation expert. You analyze code behavior and write original descriptions. You NEVER copy text from code - you analyze what functions DO and describe their purpose and behavior.",
+                                messages=[{
+                                    "role": "user",
+                                    "content": description_prompt
+                                }]
+                            )
+                            
+                            if llm_response.content and len(llm_response.content) > 0:
+                                generated_desc = llm_response.content[0].text.strip()
+                                if generated_desc and len(generated_desc) > 30:
+                                    description = generated_desc
+                        except Exception as e:
+                            print(f"  ⚠ Failed to generate LLM description for {matched_name}: {e}")
+                        
+                        if not description or len(description) < 30:
+                            if ref_type == "class":
+                                description = "A class that provides functionality for managing operations and state within the application."
+                            elif ref_type == "function":
+                                description = "A function that processes input data and returns transformed output according to its implementation."
+                            else:
+                                description = "A method that performs operations on the class instance."
+                    
+                    # Clean description - remove name prefix if present
+                    if description:
+                        description = re.sub(r'^' + re.escape(matched_name) + r'[:\s]+', '', description, flags=re.IGNORECASE)
+                        description = re.sub(r'^' + re.escape(matched_name) + r'\s+is\s+', '', description, flags=re.IGNORECASE)
+                        description = description.strip()
+                    
+                    # Generate signature string
+                    module_path = file_path.replace("\\", "/").rsplit("/", 1)[0] if "/" in file_path or "\\" in file_path else None
+                    signature_parts = []
+                    
+                    if module_path:
+                        module_path = module_path.replace("app/", "").replace("src/", "").replace("lib/", "")
+                        signature_parts.append(module_path.replace("/", "."))
+                    
+                    signature_parts.append(matched_name)
+                    
+                    param_strings = []
+                    if parameters:
+                        for param in parameters:
+                            param_name = param.get("name", "")
+                            default_val = param.get("default")
+                            
+                            if default_val:
+                                param_strings.append(f"{param_name}={default_val}")
+                            else:
+                                if 'id' in param_name.lower() or 'key' in param_name.lower():
+                                    sample_val = "'example_id'"
+                                elif 'data' in param_name.lower() or 'input' in param_name.lower():
+                                    sample_val = "data"
+                                elif 'config' in param_name.lower() or 'options' in param_name.lower():
+                                    sample_val = "None"
+                                elif 'callback' in param_name.lower() or 'handler' in param_name.lower():
+                                    sample_val = "callback"
+                                elif 'count' in param_name.lower() or 'num' in param_name.lower() or 'size' in param_name.lower():
+                                    sample_val = "5"
+                                elif 'flag' in param_name.lower() or 'enable' in param_name.lower() or 'is_' in param_name.lower():
+                                    sample_val = "True"
+                                else:
+                                    sample_val = "None"
+                                
+                                param_strings.append(f"{param_name}={sample_val}")
+                    
+                    signature_str = ".".join(signature_parts)
+                    if param_strings:
+                        signature_str += f"({', '.join(param_strings)})"
+                    else:
+                        signature_str += "()"
+                    
+                    code_reference_details.append({
+                        "referenceId": ref_id,
+                        "name": matched_name,
+                        "type": ref_type,
+                        "description": description,
+                        "filePath": file_path,
+                        "module": file_path.replace("\\", "/").rsplit("/", 1)[0] if "/" in file_path or "\\" in file_path else None,
+                        "parameters": parameters if parameters else None,
+                        "code": code_snippet,
+                        "signature": signature_str
+                    })
+                    matched = True
+                    break
+            
+            # If not found, create basic entry
+            if not matched:
+                code_reference_details.append({
+                    "referenceId": ref_id,
+                    "name": ref_id,
+                    "type": "function",
+                    "description": "A code element that performs operations as defined in the codebase.",
+                    "filePath": None,
+                    "module": None,
+                    "parameters": None,
+                    "code": None
+                })
+        
+        
+        # Calculate documentation length for logging
+        doc_length = len(json.dumps(documentation))
+        print(f"✓ Documentation generated ({doc_length} characters)")
+        print(f"✓ Sections: {len(documentation.get('sections', []))}")
+        print(f"✓ Code references: {len(code_reference_ids_from_llm)}")
+        
+        # Extract title from documentation structure
+        def extract_title(doc_data: dict, prompt: str) -> str:
+            """Extract a title from documentation structure"""
+            sections = doc_data.get("sections", [])
+            if sections and len(sections) > 0:
+                first_section = sections[0]
+                title = first_section.get("title", "")
+                if title and len(title) > 0 and len(title) <= 100:
+                    return title
+            
+            if sections and len(sections) > 0:
+                first_section = sections[0]
+                description = first_section.get("description", "").strip()
+                if description:
+                    sentences = re.split(r'[.!?]\s+', description)
+                    if sentences and sentences[0]:
+                        title = sentences[0].strip()
+                        if len(title) > 0:
+                            return title[:100]
+            
+            if prompt:
+                title = prompt[:60].strip()
+                if len(title) < len(prompt):
+                    title += "..."
+                return title
+            
+            return "Documentation"
+        
+        doc_title = extract_title(documentation, request.prompt)
+        print(f"✓ Extracted title: {doc_title}")
+        
+        # Step 8: Upsert code references to MongoDB
+        code_reference_ids = []
+        
+        if mongodb_service and request.organization_id and request.repository_id:
+            print(f"\n[Step 8/10] Upserting code references to MongoDB...")
+            
+            for ref in code_reference_details:
+                ref_id = ref.get("referenceId")
+                if not ref_id:
+                    continue
+                
+                result = mongodb_service.upsert_code_reference(
+                    organization_id=request.organization_id,
+                    repository_id=request.repository_id,
+                    reference_id=ref_id,
+                    name=ref.get("name", ""),
+                    reference_type=ref.get("type", "function"),
+                    description=ref.get("description", ""),
+                    module=ref.get("module"),
+                    file_path=ref.get("filePath"),
+                    signature=ref.get("signature"),
+                    parameters=ref.get("parameters"),
+                    returns=ref.get("returns"),
+                    examples=ref.get("examples"),
+                    see_also=ref.get("seeAlso"),
+                    code=ref.get("code")
+                )
+                
+                if result.get("success"):
+                    if ref_id not in code_reference_ids:
+                        code_reference_ids.append(ref_id)
+                    action = result.get("action", "unknown")
+                    print(f"  ✓ Code reference '{ref_id}': {action}")
+                else:
+                    print(f"  ⚠ Failed to upsert code reference '{ref_id}': {result.get('error')}")
+            
+            for ref_id in code_reference_ids_from_llm:
+                if ref_id not in code_reference_ids:
+                    code_reference_ids.append(ref_id)
+                    if ref_id not in [r.get("referenceId") for r in code_reference_details]:
+                        print(f"  ⚠ Code reference ID '{ref_id}' has no details - will not be stored in MongoDB")
+            
+            print(f"✓ Upserted {len(code_reference_ids)} code references")
+        else:
+            if not mongodb_service:
+                print(f"\n[Step 8/10] MongoDB service not available, skipping code references")
+            else:
+                print(f"\n[Step 8/10] Missing organization_id or repository_id, skipping MongoDB upsert")
+        
+        # Step 9: Save documentation locally (for backup/reference)
+        print(f"\n[Step 9/10] Saving documentation to local storage...")
+        doc_metadata = {
+            "collection_name": collection_name,
+            "chunks_used": len(search_results),
+            "chunks": [
+                {
+                    "file_path": chunk.get("metadata", {}).get("file_path", ""),
+                    "function_name": chunk.get("metadata", {}).get("function_name", ""),
+                    "score": chunk.get("score", 0)
+                }
+                for chunk in search_results
+            ]
+        }
+        
+        def documentation_to_markdown(doc_data: dict) -> str:
+            """Convert documentation structure to markdown format"""
+            markdown_parts = []
+            sections = doc_data.get("sections", [])
+            
+            def process_section(section, level=1):
+                section_id = section.get("id", "")
+                title = section.get("title", "")
+                description = section.get("description", "")
+                code_refs = section.get("code_references", [])
+                subsections = section.get("subsections", [])
+                
+                if title:
+                    markdown_parts.append(f"{'#' * level} {section_id}. {title}\n")
+                
+                if description:
+                    markdown_parts.append(description + "\n\n")
+                
+                if code_refs:
+                    markdown_parts.append("**Code References:** " + ", ".join([f"`{ref}`" for ref in code_refs]) + "\n\n")
+                
+                for subsection in subsections:
+                    process_section(subsection, level + 1)
+            
+            for section in sections:
+                process_section(section)
+            
+            return "\n".join(markdown_parts)
+        
+        documentation_markdown = documentation_to_markdown(documentation)
+        
+        doc_saved_paths = storage_service.save_documentation(
+            repo_full_name=request.repo_full_name,
+            branch=request.branch,
+            prompt=request.prompt,
+            documentation=documentation_markdown,
+            metadata=doc_metadata
+        )
+        
+        print(f"✓ Documentation saved to: {doc_saved_paths['documentation_file']}")
+        
+        # Step 10: Upload documentation to S3
+        s3_result = None
+        s3_key = None
+        if s3_service:
+            print(f"\n[Step 10/10] Uploading documentation to S3...")
+            
+            if not request.organization_id or not request.repository_id:
+                print("⚠ Missing organization_id or repository_id, skipping S3 upload")
+            else:
+                doc_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+                
+                s3_key = s3_service.generate_s3_key(
+                    organization_id=request.organization_id,
+                    repository_id=request.repository_id,
+                    branch=request.branch,
+                    scope="custom",
+                    documentation_id=doc_id,
+                    file_extension="json"
+                )
+                
+                documentation_json = {
+                    "version": "1.0",
+                    "metadata": {
+                        "title": doc_title,
+                        "generated_at": datetime.now().isoformat(),
+                        "prompt": request.prompt,
+                        "repository": request.repo_full_name,
+                        "branch": request.branch,
+                        "scope": "custom"
+                    },
+                    "documentation": documentation,
+                    "code_references": code_reference_ids
+                }
+                
+                documentation_json_str = json.dumps(documentation_json, indent=2)
+                
+                s3_result = s3_service.upload_documentation(
+                    content=documentation_json_str,
+                    s3_key=s3_key,
+                    content_type="application/json"
+                )
+                
+                if s3_result.get("success"):
+                    print(f"✓ Documentation uploaded to S3: {s3_result['s3_key']}")
+                    print(f"  Size: {s3_result['content_size']} bytes")
+                else:
+                    print(f"⚠ S3 upload failed: {s3_result.get('error')}")
+        else:
+            print(f"\n[Step 10/10] S3 service not available, skipping S3 upload")
+        
+        print("="*60 + "\n")
+        
+        # Return results
+        result = {
+            "success": True,
+            "prompt": request.prompt,
+            "title": doc_title,
+            "repository": request.repo_full_name,
+            "branch": request.branch,
+            "collection_name": collection_name,
+            "chunks_used": len(search_results),
+            "metadata": analysis_results["metadata"],
+            "saved_paths": doc_saved_paths,
+            "chunks": doc_metadata["chunks"],
+            "code_reference_ids": code_reference_ids
+        }
+        
+        if s3_result and s3_result.get("success"):
+            result["s3"] = {
+                "s3_key": s3_result["s3_key"],
+                "s3_bucket": s3_service.bucket_name,
+                "s3_url": s3_result["s3_url"],
+                "content_size": s3_result["content_size"]
+            }
+        else:
+            result["documentation"] = documentation
+        
+        return result
+        
+    except HTTPException as e:
+        print(f"[ERROR] RAG generation failed: {e.detail}")
+        raise e
+    except Exception as e:
+        print(f"[ERROR] RAG generation failed: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate documentation: {str(e)}"
+        )
+
+
+@router.post("/api/get-documentation")
+async def get_documentation(request: GetDocumentationRequest):
+    """
+    Retrieve documentation content from S3
+    
+    Args:
+        request: GetDocumentationRequest with:
+            - s3_key: S3 object key/path
+            - s3_bucket: Optional bucket name (uses default if not provided)
+    
+    Returns:
+        Documentation content from S3
+    """
+    if s3_service is None:
+        raise HTTPException(
+            status_code=503,
+            detail="S3 service not initialized. Please set AWS credentials in environment variables."
+        )
+    
+    try:
+        # Use provided bucket or default from service
+        bucket = request.s3_bucket or s3_service.bucket_name
+        
+        # Get documentation from S3
+        result = s3_service.get_documentation(request.s3_key)
+        
+        if result.get("success"):
+            return {
+                "success": True,
+                "content": result["content"],
+                "content_type": result.get("content_type", "application/json"),
+                "content_size": result.get("content_size", 0),
+                "last_modified": result.get("last_modified")
+            }
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail=result.get("error", "Documentation not found")
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve documentation: {str(e)}"
+        )
+

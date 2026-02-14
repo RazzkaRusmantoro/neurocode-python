@@ -5,8 +5,8 @@ Combines embedding and vector DB operations
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import json
-from neurocode.services.vectorizer.embedding_service import EmbeddingService
-from neurocode.services.vectorizer.vector_db_service import VectorDBService
+from neurocode.services.vector.vectorizer.embedding_service import EmbeddingService
+from neurocode.services.vector.vectorizer.vector_db_service import VectorDBService
 
 
 class Vectorizer:

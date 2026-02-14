@@ -4,7 +4,7 @@ Tracks where functions are called across the codebase
 """
 from typing import List, Dict, Optional
 from tree_sitter import Node
-from neurocode.services.parser.models import FunctionCall, FunctionUsage, Dependency
+from neurocode.services.analysis.parser.models import FunctionCall, FunctionUsage, Dependency
 
 
 def extract_function_calls(

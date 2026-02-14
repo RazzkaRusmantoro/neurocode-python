@@ -4,27 +4,27 @@ Parses code files and extracts AST, symbols, and dependencies
 """
 from typing import List, Dict, Optional, Any
 from tree_sitter import Parser, Node
-from neurocode.services.parser.language_support import (
+from neurocode.services.analysis.parser.language_support import (
     detect_language,
     is_language_supported,
     get_language_grammar,
     initialize_parser,
 )
-from neurocode.services.parser.symbol_extractor import (
+from neurocode.services.analysis.parser.symbol_extractor import (
     extract_functions,
     extract_classes,
     extract_exports,
 )
-from neurocode.services.parser.dependency_extractor import (
+from neurocode.services.analysis.parser.dependency_extractor import (
     extract_imports,
     extract_inheritance,
 )
-from neurocode.services.parser.call_extractor import (
+from neurocode.services.analysis.parser.call_extractor import (
     extract_function_calls,
     build_usage_map,
     create_call_dependencies,
 )
-from neurocode.services.parser.models import (
+from neurocode.services.analysis.parser.models import (
     ParsedCodeStructure,
     ParsedFile,
     Dependency,

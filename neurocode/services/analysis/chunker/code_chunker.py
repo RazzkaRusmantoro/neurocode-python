@@ -4,7 +4,7 @@ Creates semantic chunks from parsed code for vectorization
 """
 from typing import List, Dict, Any, Optional, Tuple
 from collections import defaultdict
-from neurocode.services.parser.models import (
+from neurocode.services.analysis.parser.models import (
     ParsedCodeStructure,
     ParsedFile,
     FunctionDefinition,
@@ -12,7 +12,7 @@ from neurocode.services.parser.models import (
     Dependency,
     FunctionUsage,
 )
-from neurocode.services.chunker.models import CodeChunk, ChunkMetadata, ChunkType
+from neurocode.services.analysis.chunker.models import CodeChunk, ChunkMetadata, ChunkType
 
 
 class CodeChunker:

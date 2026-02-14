@@ -3,7 +3,7 @@ Extract dependencies (imports, requires) from Tree-sitter AST
 """
 from typing import List, Tuple, Optional
 from tree_sitter import Node
-from neurocode.services.parser.models import ImportStatement, Dependency
+from neurocode.services.analysis.parser.models import ImportStatement, Dependency
 
 
 def extract_imports(

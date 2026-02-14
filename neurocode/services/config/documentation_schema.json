@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "required": ["documentation", "code_references"],
+  "properties": {
+    "documentation": {
+      "type": "object",
+      "required": ["sections"],
+      "description": "Main documentation with hierarchical sections",
+      "properties": {
+        "sections": {
+          "type": "array",
+          "description": "Array of documentation sections with hierarchical numbering (1, 1.1, 2, 2.1, etc.). Maximum 5 sections total.",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "required": ["id", "title", "description"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Section ID (e.g., '1', '1.1', '2', '2.1', '2.2')"
+              },
+              "title": {
+                "type": "string",
+                "description": "Section title"
+              },
+              "description": {
+                "type": "string",
+                "description": "Description/content for this section"
+              },
+              "code_references": {
+                "type": "array",
+                "description": "Array of code reference IDs mentioned in this section (must match IDs in code_references array)",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "subsections": {
+                "type": "array",
+                "description": "Optional array of subsections (same structure as sections)",
+                "items": {
+                  "$ref": "#/properties/documentation/properties/sections/items"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "code_references": {
+      "type": "array",
+      "description": "Array of code reference IDs (referenceId strings) ONLY. Maximum 10 references. Must be actual unique classes, functions, methods from the code (not generic names like 'useEffect'). Simple array like ['processCitation', 'formatCitation']. Full details will be extracted and stored in MongoDB separately.",
+      "maxItems": 10,
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

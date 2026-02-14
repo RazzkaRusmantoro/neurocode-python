@@ -3,7 +3,7 @@ Extract symbols (functions, classes, methods) from Tree-sitter AST
 """
 from typing import List, Optional
 from tree_sitter import Node
-from neurocode.services.parser.models import (
+from neurocode.services.analysis.parser.models import (
     FunctionDefinition,
     ClassDefinition,
     MethodDefinition,

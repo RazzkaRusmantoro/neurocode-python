@@ -3,9 +3,9 @@ Code analyzer service
 Combines parsing and chunking to prepare code for vectorization
 """
 from typing import List, Dict, Any, Optional
-from neurocode.services.parser import TreeSitterParser, ParseResult
-from neurocode.services.chunker import CodeChunker
-from neurocode.services.chunker.models import CodeChunk
+from neurocode.services.analysis.parser import TreeSitterParser, ParseResult
+from neurocode.services.analysis.chunker import CodeChunker
+from neurocode.services.analysis.chunker.models import CodeChunk
 
 
 class CodeAnalyzer:
