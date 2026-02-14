@@ -27,6 +27,21 @@
                 "type": "string",
                 "description": "Description/content for this section"
               },
+              "code_snippet": {
+                "type": "object",
+                "description": "Optional code snippet to display with this section (only include if relevant to the description)",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "description": "Code snippet (can be partial - just show the relevant part, not entire functions if they're long)"
+                  },
+                  "language": {
+                    "type": "string",
+                    "description": "Programming language (e.g., 'typescript', 'python', 'javascript')"
+                  }
+                },
+                "required": ["code", "language"]
+              },
               "code_references": {
                 "type": "array",
                 "description": "Array of code reference IDs mentioned in this section (must match IDs in code_references array)",

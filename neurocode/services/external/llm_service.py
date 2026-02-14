@@ -146,16 +146,44 @@ Your documentation should:
    - MAXIMUM 5 sections total (including subsections count toward this limit)
    - Create sections with IDs like "1", "1.1", "2", "2.1", "2.2", etc.
    - **CRITICAL REQUIREMENT**: The documentation MUST include subsections. Not every section needs subsections, but the overall documentation structure MUST have at least some subsections (e.g., section "1" should have "1.1", "1.2", etc., or section "2" should have "2.1", "2.2", etc.). This is REQUIRED - do not generate documentation without any subsections.
-   - Each section has: id, title, description, code_references (array of IDs), and optional subsections (but remember: subsections MUST exist somewhere in the documentation)
+   - Each section has: id, title, description, optional code_snippet, code_references (array of IDs), and optional subsections (but remember: subsections MUST exist somewhere in the documentation)
    - The description field must be DETAILED and THOROUGH, similar to scikit-learn documentation style:
      * Explain concepts, algorithms, and processes in clear English
-     * **CRITICAL FORMATTING**: Use paragraph breaks (`\n\n`) to separate different ideas or topics. Each paragraph should focus on one main concept. For example, if describing a multi-stage process, use `\n\n` between each stage description. This ensures readable, well-structured documentation.
+     * **FORMATTING GUIDELINES**: 
+       - Use paragraph breaks (`\n\n`) to separate different ideas or topics. Each paragraph should focus on one main concept.
+       - Write in a natural, flowing documentation style - use a mix of paragraphs and lists as appropriate
+       - **Use bullet points (`- ` or `* `) when appropriate** for:
+         * Lists of distinct items, features, or components (especially when each item has details)
+         * When breaking information into a list improves clarity and scannability
+         * Quick reference lists that readers might want to scan
+       - **Use numbered lists (`1. `, `2. `, `3. `) when appropriate** for:
+         * Sequential steps or processes that must be followed in order
+         * When the sequence or order is important to understanding
+         * Step-by-step workflows or procedures
+       - **Balance is key**: Use lists when they improve readability, but don't force everything into lists. Mix paragraphs and lists naturally based on what best communicates the information.
+       - Example of good mixed style: "The system processes data through multiple stages. First, input validation ensures data integrity. Then, the transformation layer applies business rules. Finally, the output is formatted for display.\n\nThe system supports several file formats:\n\n- PDF: For document processing\n- DOCX: For editable documents\n- TXT: For plain text files"
      * Include mathematical formulations where relevant (like "2.4.2.1. Mathematical formulation")
      * **CRITICAL**: When mentioning code references (functions, classes, methods), ALWAYS use the format `[[functionName]]` (double brackets, no backticks, no parentheses). Example: "The `[[applyCitation]]` function processes citations. The `[[StructurePreservingEditor]]` class manages document structure." This format is REQUIRED and must be used consistently for ALL code references.
      * **CRITICAL CONSISTENCY RULE**: If you mention ANY function/class/method using the `[[functionName]]` format in the description, you MUST also include that function name in the `code_references` array for that section. Every `[[...]]` reference in the description MUST have a corresponding entry in the code_references array. This ensures consistency between what's mentioned in text and what's tracked as a code reference.
      * Be comprehensive - cover as much detail as possible conceptually
      * Subsections can vary in length but should be thorough
-     * **Example of proper paragraph formatting**: "First paragraph explaining the main concept.\n\nSecond paragraph covering a different aspect.\n\nThird paragraph describing implementation details."
+     * **Example of proper formatting**: "The system consists of three main components that work together to process user requests. The authentication component handles user verification and session management. The request processing component validates and routes incoming data requests. The database layer manages persistent storage and retrieval operations.\n\nThe workflow begins when a user submits a request. The system first validates the input to ensure data integrity and security. Once validated, the data is processed according to business rules and the results are returned to the user."
+   - **code_snippet** (OPTIONAL): Include this field ONLY when it adds value beyond what will be shown in code_references. **CRITICAL RULES**:
+     * **DO NOT include code snippets for functions/classes/methods that are already in code_references** - those will have their full code shown separately. Only include snippets for:
+       - Configuration examples
+       - Usage patterns that combine multiple functions
+       - Small utility code that won't be in code_references
+       - API call examples or integration patterns
+       - Data structure examples
+     * **Keep snippets SMALL** - maximum 10-15 lines. If you need to show more:
+       - Split into multiple smaller snippets
+       - Show only the most critical part
+       - Focus on the key concept, not the full implementation
+     * Include the `code` field (the actual code text) and `language` field (e.g., "python", "typescript", "javascript")
+     * Show actual code from the provided context that demonstrates the concept
+     * **If explaining a function that's mentioned in code_references, DO NOT duplicate its code here** - just describe it in text
+     * If a section doesn't need a code snippet, simply omit this field (don't include it as null or empty)
+     * **CRITICAL**: Look through the provided code context and extract actual code snippets. Don't make up code - use real code from the context.
    - code_references: Array of code reference IDs mentioned in this section. **CRITICAL**: This array MUST include ALL function/class/method names that appear in `[[...]]` format anywhere in this section's description. If you write `[[fetch_metadata]]` in the description, you MUST include "fetch_metadata" in this array. **DO NOT duplicate references across sections unnecessarily** - if a function is mentioned in section 1, you don't need to list it again in section 1.1 unless it's specifically relevant there. Usually just list it once or twice total across the entire documentation.
    - Prioritize quality and detail over quantity
 
@@ -223,6 +251,65 @@ Your documentation should:
                     cleaned_text = cleaned_text[:-3].strip()
                 
                 return cleaned_text
+            
+            def sanitize_control_characters(json_str):
+                """Escape invalid control characters in JSON strings"""
+                # Try to fix control characters in string values
+                # Control characters (0x00-0x1F) need to be escaped
+                
+                result = []
+                i = 0
+                in_string = False
+                escape_next = False
+                
+                while i < len(json_str):
+                    char = json_str[i]
+                    
+                    if escape_next:
+                        # Next character is escaped, so include it as-is
+                        result.append(char)
+                        escape_next = False
+                    elif char == '\\':
+                        # Escape sequence - check if it's already escaping something
+                        result.append(char)
+                        escape_next = True
+                    elif char == '"':
+                        # Check if this quote is escaped by counting backslashes
+                        # Count consecutive backslashes before this quote
+                        backslash_count = 0
+                        j = i - 1
+                        while j >= 0 and json_str[j] == '\\':
+                            backslash_count += 1
+                            j -= 1
+                        
+                        # If even number of backslashes (or zero), quote is not escaped
+                        if backslash_count % 2 == 0:
+                            in_string = not in_string
+                        result.append(char)
+                    elif in_string:
+                        # Inside a string value
+                        # Check if it's a control character (0x00-0x1F)
+                        char_code = ord(char)
+                        if char_code < 32:
+                            # Control character - escape it
+                            if char == '\n':
+                                result.append('\\n')
+                            elif char == '\r':
+                                result.append('\\r')
+                            elif char == '\t':
+                                result.append('\\t')
+                            else:
+                                # Other control characters - escape as unicode
+                                result.append(f'\\u{char_code:04x}')
+                        else:
+                            result.append(char)
+                    else:
+                        # Outside string - keep as-is
+                        result.append(char)
+                    
+                    i += 1
+                
+                return ''.join(result)
             
             def fix_truncated_json(json_str):
                 """Attempt to fix truncated JSON by closing open structures"""
@@ -332,26 +419,42 @@ Your documentation should:
                     print(f"[LLMService] JSON parse error: {e}")
                     print(f"[LLMService] Error at position: {e.pos if hasattr(e, 'pos') else 'unknown'}")
                     
-                    # Try to fix truncated JSON
+                    # First, try to sanitize control characters
                     try:
-                        fixed_json = fix_truncated_json(json_str)
-                        parsed = json.loads(fixed_json)
+                        sanitized_json = sanitize_control_characters(json_str)
+                        parsed = json.loads(sanitized_json)
                         
                         code_refs = parsed.get("code_references", [])
                         code_ref_ids = [ref for ref in code_refs if isinstance(ref, str)]
                         
-                        print(f"[LLMService] Successfully fixed truncated JSON")
+                        print(f"[LLMService] Successfully fixed control characters in JSON")
                         return {
                             "documentation": parsed.get("documentation", {"sections": []}),
                             "code_reference_ids": code_ref_ids
                         }
-                    except Exception as fix_error:
-                        print(f"[LLMService] Could not fix JSON, attempting partial extraction: {fix_error}")
-                        
-                        # Last resort: extract partial data using regex
-                        partial_data = extract_partial_data(json_str)
-                        print(f"[LLMService] Extracted partial data: {len(partial_data['code_reference_ids'])} refs, {len(partial_data['documentation']['sections'])} sections")
-                        return partial_data
+                    except Exception as sanitize_error:
+                        # If sanitization didn't work, try to fix truncated JSON
+                        try:
+                            fixed_json = fix_truncated_json(json_str)
+                            # Also sanitize the fixed JSON
+                            fixed_json = sanitize_control_characters(fixed_json)
+                            parsed = json.loads(fixed_json)
+                            
+                            code_refs = parsed.get("code_references", [])
+                            code_ref_ids = [ref for ref in code_refs if isinstance(ref, str)]
+                            
+                            print(f"[LLMService] Successfully fixed truncated JSON with control character sanitization")
+                            return {
+                                "documentation": parsed.get("documentation", {"sections": []}),
+                                "code_reference_ids": code_ref_ids
+                            }
+                        except Exception as fix_error:
+                            print(f"[LLMService] Could not fix JSON, attempting partial extraction: {fix_error}")
+                            
+                            # Last resort: extract partial data using regex
+                            partial_data = extract_partial_data(json_str)
+                            print(f"[LLMService] Extracted partial data: {len(partial_data['code_reference_ids'])} refs, {len(partial_data['documentation']['sections'])} sections")
+                            return partial_data
             else:
                 # No JSON found
                 print(f"[LLMService] No JSON object found in response")

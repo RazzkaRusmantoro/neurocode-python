@@ -390,22 +390,6 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         code_reference_ids_from_llm = structured_result.get("code_reference_ids", [])
         
         # Validate limits
-        sections = documentation.get("sections", [])
-        def count_all_sections(sections_list):
-            """Count all sections including subsections"""
-            count = len(sections_list)
-            for section in sections_list:
-                subsections = section.get("subsections", [])
-                if subsections:
-                    count += count_all_sections(subsections)
-            return count
-        
-        total_sections = count_all_sections(sections)
-        if total_sections > 5:
-            print(f"  ⚠ Warning: {total_sections} sections found, limiting to 5")
-            # Keep only first 5 sections (simplified - could be smarter)
-            documentation["sections"] = sections[:5]
-        
         if len(code_reference_ids_from_llm) > 10:
             print(f"  ⚠ Warning: {len(code_reference_ids_from_llm)} code references found, limiting to 10")
             code_reference_ids_from_llm = code_reference_ids_from_llm[:10]
@@ -710,17 +694,124 @@ Description:"""
                     matched = True
                     break
             
-            # If not found, create basic entry
+            # If not found, try to find it in code context (might be an import, instance, or library function)
             if not matched:
+                # Search through all chunks for any mention of this reference
+                found_context = None
+                found_file = None
+                for chunk in search_results:
+                    content = chunk.get("content", "")
+                    metadata = chunk.get("metadata", {})
+                    file_path = metadata.get("file_path", "")
+                    
+                    # Check if ref_id appears in the content (import, usage, assignment, etc.)
+                    if ref_id in content or ref_id.replace("_", "") in content.replace("_", ""):
+                        # Try to find the context around it
+                        lines = content.split('\n')
+                        for i, line in enumerate(lines):
+                            if ref_id in line or ref_id.replace("_", "") in line.replace("_", ""):
+                                # Get context (5 lines before and after)
+                                start = max(0, i - 5)
+                                end = min(len(lines), i + 6)
+                                found_context = '\n'.join(lines[start:end])
+                                found_file = file_path
+                                break
+                        if found_context:
+                            break
+                
+                # Generate a better description using LLM with context
+                description = None
+                if found_context:
+                    try:
+                        # Extract how it's used from the documentation
+                        doc_context = ""
+                        for section in documentation.get("sections", []):
+                            desc = section.get("description", "")
+                            if f"[[{ref_id}]]" in desc or ref_id in desc:
+                                # Extract the sentence mentioning it
+                                sentences = desc.split('.')
+                                for sent in sentences:
+                                    if ref_id in sent or f"[[{ref_id}]]" in sent:
+                                        doc_context = sent.strip()
+                                        break
+                                if doc_context:
+                                    break
+                        
+                        description_prompt = f"""Generate a concise but detailed description for this code reference: {ref_id}
+
+Code context where it appears:
+{found_context[:1500]}
+
+Documentation context (how it's described):
+{doc_context if doc_context else "Not mentioned in documentation"}
+
+Based on the code context and how it's used, describe what this code element does. Be specific about:
+- What it is (function, class, module, instance, etc.)
+- What it does or what it's used for
+- Key functionality based on the code context
+
+Keep it to 2-3 sentences. Write in scikit-learn documentation style.
+
+**CRITICAL**: 
+- If it's an import (like `from X import Y` or `import X`), describe what the imported module/function does
+- If it's an instance (like `model = SomeModel()`), describe what the instance is used for
+- If it's a library function (like `util.cos_sim`), describe what the library function does
+- Analyze the code context to understand its purpose, don't just say "a code element"
+
+Description:"""
+                        
+                        llm_response = llm_service.client.messages.create(
+                            model=llm_service.model_fast,  # Use cheaper model
+                            max_tokens=200,
+                            system="You are a technical documentation expert. Analyze code context and write specific, helpful descriptions.",
+                            messages=[{
+                                "role": "user",
+                                "content": description_prompt
+                            }]
+                        )
+                        
+                        if llm_response.content and len(llm_response.content) > 0:
+                            generated_desc = llm_response.content[0].text.strip()
+                            if generated_desc and len(generated_desc) > 30:
+                                description = generated_desc
+                    except Exception as e:
+                        print(f"  ⚠ Failed to generate description for unmatched reference {ref_id}: {e}")
+                
+                # If still no description, try to infer from the name
+                if not description or len(description) < 30:
+                    # Infer type and purpose from name
+                    name_lower = ref_id.lower()
+                    if 'model' in name_lower:
+                        if 'sbert' in name_lower or 'bert' in name_lower:
+                            description = "A Sentence-BERT model instance used for generating sentence embeddings and computing semantic similarity between text."
+                        elif 'kw' in name_lower or 'keyword' in name_lower:
+                            description = "A keyword extraction model instance used for extracting relevant keywords and keyphrases from text."
+                        else:
+                            description = f"A model instance ({ref_id}) used for processing and analyzing data."
+                    elif 'nlp' in name_lower:
+                        description = "A natural language processing pipeline instance (likely spaCy) used for text analysis, tokenization, and linguistic feature extraction."
+                    elif 'util' in name_lower or 'cos' in name_lower or 'sim' in name_lower:
+                        description = "A utility function for computing cosine similarity between vectors, typically used for measuring semantic similarity between text embeddings."
+                    elif 'client' in name_lower and 'chat' in name_lower:
+                        description = "An OpenAI API client method for creating chat completions, used to interact with GPT models for text generation and analysis."
+                    elif 'get_' in name_lower or 'fetch_' in name_lower or 'retrieve_' in name_lower:
+                        description = f"A function ({ref_id}) that retrieves or fetches data from a source."
+                    elif 'generate_' in name_lower or 'create_' in name_lower:
+                        description = f"A function ({ref_id}) that generates or creates new content or data."
+                    elif 'process_' in name_lower or 'handle_' in name_lower:
+                        description = f"A function ({ref_id}) that processes or handles input data."
+                    else:
+                        description = f"A code element ({ref_id}) that performs operations as defined in the codebase."
+                
                 code_reference_details.append({
                     "referenceId": ref_id,
                     "name": ref_id,
                     "type": "function",
-                    "description": "A code element that performs operations as defined in the codebase.",
-                    "filePath": None,
-                    "module": None,
+                    "description": description,
+                    "filePath": found_file,
+                    "module": found_file.replace("\\", "/").rsplit("/", 1)[0] if found_file and ("/" in found_file or "\\" in found_file) else None,
                     "parameters": None,
-                    "code": None
+                    "code": found_context[:2000] if found_context else None
                 })
         
         
