@@ -143,10 +143,11 @@ Your documentation should:
 
 **INSTRUCTIONS:**
 1. Generate the main documentation in structured JSON format with hierarchical sections:
+   - **REQUIRED**: Include a top-level `description` field (2-3 sentences) that briefly describes what this documentation is about. This should be a concise overview of the documentation's purpose and scope.
    - MAXIMUM 5 sections total (including subsections count toward this limit)
    - Create sections with IDs like "1", "1.1", "2", "2.1", "2.2", etc.
    - **CRITICAL REQUIREMENT**: The documentation MUST include subsections. Not every section needs subsections, but the overall documentation structure MUST have at least some subsections (e.g., section "1" should have "1.1", "1.2", etc., or section "2" should have "2.1", "2.2", etc.). This is REQUIRED - do not generate documentation without any subsections.
-   - Each section has: id, title, description, optional code_snippet, code_references (array of IDs), and optional subsections (but remember: subsections MUST exist somewhere in the documentation)
+   - Each section has: id, title, description, code_references (array of IDs), and optional subsections (but remember: subsections MUST exist somewhere in the documentation)
    - The description field must be DETAILED and THOROUGH, similar to scikit-learn documentation style:
      * Explain concepts, algorithms, and processes in clear English
      * **FORMATTING GUIDELINES**: 
@@ -168,22 +169,6 @@ Your documentation should:
      * Be comprehensive - cover as much detail as possible conceptually
      * Subsections can vary in length but should be thorough
      * **Example of proper formatting**: "The system consists of three main components that work together to process user requests. The authentication component handles user verification and session management. The request processing component validates and routes incoming data requests. The database layer manages persistent storage and retrieval operations.\n\nThe workflow begins when a user submits a request. The system first validates the input to ensure data integrity and security. Once validated, the data is processed according to business rules and the results are returned to the user."
-   - **code_snippet** (OPTIONAL): Include this field ONLY when it adds value beyond what will be shown in code_references. **CRITICAL RULES**:
-     * **DO NOT include code snippets for functions/classes/methods that are already in code_references** - those will have their full code shown separately. Only include snippets for:
-       - Configuration examples
-       - Usage patterns that combine multiple functions
-       - Small utility code that won't be in code_references
-       - API call examples or integration patterns
-       - Data structure examples
-     * **Keep snippets SMALL** - maximum 10-15 lines. If you need to show more:
-       - Split into multiple smaller snippets
-       - Show only the most critical part
-       - Focus on the key concept, not the full implementation
-     * Include the `code` field (the actual code text) and `language` field (e.g., "python", "typescript", "javascript")
-     * Show actual code from the provided context that demonstrates the concept
-     * **If explaining a function that's mentioned in code_references, DO NOT duplicate its code here** - just describe it in text
-     * If a section doesn't need a code snippet, simply omit this field (don't include it as null or empty)
-     * **CRITICAL**: Look through the provided code context and extract actual code snippets. Don't make up code - use real code from the context.
    - code_references: Array of code reference IDs mentioned in this section. **CRITICAL**: This array MUST include ALL function/class/method names that appear in `[[...]]` format anywhere in this section's description. If you write `[[fetch_metadata]]` in the description, you MUST include "fetch_metadata" in this array. **DO NOT duplicate references across sections unnecessarily** - if a function is mentioned in section 1, you don't need to list it again in section 1.1 unless it's specifically relevant there. Usually just list it once or twice total across the entire documentation.
    - Prioritize quality and detail over quantity
 

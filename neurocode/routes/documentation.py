@@ -821,7 +821,7 @@ Description:"""
         print(f"✓ Sections: {len(documentation.get('sections', []))}")
         print(f"✓ Code references: {len(code_reference_ids_from_llm)}")
         
-        # Extract title from documentation structure
+        # Extract title and description from documentation structure
         def extract_title(doc_data: dict, prompt: str) -> str:
             """Extract a title from documentation structure"""
             sections = doc_data.get("sections", [])
@@ -850,7 +850,10 @@ Description:"""
             return "Documentation"
         
         doc_title = extract_title(documentation, request.prompt)
+        doc_description = documentation.get("description", "").strip()
         print(f"✓ Extracted title: {doc_title}")
+        if doc_description:
+            print(f"✓ Extracted description: {doc_description[:100]}...")
         
         # Step 8: Upsert code references to MongoDB
         code_reference_ids = []
@@ -1014,6 +1017,7 @@ Description:"""
             "success": True,
             "prompt": request.prompt,
             "title": doc_title,
+            "description": doc_description if doc_description else None,
             "repository": request.repo_full_name,
             "branch": request.branch,
             "collection_name": collection_name,

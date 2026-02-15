@@ -4,9 +4,13 @@
   "properties": {
     "documentation": {
       "type": "object",
-      "required": ["sections"],
+      "required": ["description", "sections"],
       "description": "Main documentation with hierarchical sections",
       "properties": {
+        "description": {
+          "type": "string",
+          "description": "Brief description (2-3 sentences) of what this documentation is about"
+        },
         "sections": {
           "type": "array",
           "description": "Array of documentation sections with hierarchical numbering (1, 1.1, 2, 2.1, etc.). Maximum 5 sections total.",
@@ -26,21 +30,6 @@
               "description": {
                 "type": "string",
                 "description": "Description/content for this section"
-              },
-              "code_snippet": {
-                "type": "object",
-                "description": "Optional code snippet to display with this section (only include if relevant to the description)",
-                "properties": {
-                  "code": {
-                    "type": "string",
-                    "description": "Code snippet (can be partial - just show the relevant part, not entire functions if they're long)"
-                  },
-                  "language": {
-                    "type": "string",
-                    "description": "Programming language (e.g., 'typescript', 'python', 'javascript')"
-                  }
-                },
-                "required": ["code", "language"]
               },
               "code_references": {
                 "type": "array",
