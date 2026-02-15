@@ -1,0 +1,560 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "title": "Citation Process Pipeline Documentation",
+    "description": "Comprehensive documentation of the AI-powered citation system for generating, managing, and formatting academic citations",
+    "generated_at": "2026-02-08T17:16:57.791546",
+    "prompt": "Explain the full citation process that happens in terms of the AI usage and overall pipeline in the code",
+    "repository": "RazzkaRusmantoro/citera",
+    "branch": "main",
+    "scope": "custom"
+  },
+  "user_guide": {
+    "sections": [
+      {
+        "id": "1",
+        "title": "Overview",
+        "content": "The Citera citation system implements a comprehensive AI-powered pipeline for generating, managing, and formatting academic citations. This documentation details the complete citation workflow across two primary interfaces: **Basic AI Citation** (`/ai-citation`) and **Premium AI Citation Assistant** (`/ai-citation-pro`).",
+        "subsections": []
+      },
+      {
+        "id": "2",
+        "title": "Architecture Components",
+        "content": "The system consists of multiple interconnected components that work together to provide citation functionality.",
+        "subsections": [
+          {
+            "id": "2.1",
+            "title": "Frontend Citation Interfaces",
+            "content": "The frontend provides two distinct interfaces for different use cases.",
+            "subsections": [
+              {
+                "id": "2.1.1",
+                "title": "Basic Citation Interface",
+                "content": "The `Citation()` function component implements a read-only citation viewer with PDF highlighting capabilities. This interface is designed for users who need to view and format citations without editing capabilities.",
+                "technical_details": "The component uses React hooks for state management, including `useState` for managing references, paper details, and UI state. It extracts the `fileId` from URL query parameters using `useSearchParams()` and waits for PDF load before querying Supabase for citation data.",
+                "code_references": ["example-basic-citation"],
+                "notes": [
+                  "The component implements deduplication logic to ensure unique references are displayed",
+                  "PDF highlighting is enabled by default but can be toggled by users"
+                ],
+                "references": []
+              },
+              {
+                "id": "2.1.2",
+                "title": "Premium Citation Interface",
+                "content": "The `CitationContent()` function implements an advanced interactive editor with citation manipulation capabilities. This interface provides full control over citations including reciting, rephrasing, and removing citations.",
+                "technical_details": "The premium interface manages both `references` and `cited_sentences` arrays from Supabase `files_pro` table. It includes state management for highlighted sentences, expanded sentences, and loading states for AI operations.",
+                "code_references": ["example-premium-citation"],
+                "notes": [
+                  "Requires Supabase `files_pro` table access",
+                  "Integrates with Tiptap editor for real-time content updates"
+                ],
+                "references": []
+              }
+            ]
+          },
+          {
+            "id": "2.2",
+            "title": "Citation Data Pipeline",
+            "content": "The citation data pipeline handles fetching and processing paper metadata from external APIs.",
+            "subsections": [
+              {
+                "id": "2.2.1",
+                "title": "Reference Fetching Workflow",
+                "content": "Both interfaces implement a two-stage fetching process with error recovery to ensure reliable data retrieval.",
+                "subsections": [
+                  {
+                    "id": "2.2.1.1",
+                    "title": "Stage 1: Batch Fetching",
+                    "content": "The system first attempts to fetch multiple papers in a single API call using Semantic Scholar's batch endpoint. This is more efficient but can fail due to rate limiting.",
+                    "technical_details": "The batch API endpoint is `https://api.semanticscholar.org/graph/v1/paper/batch?fields=title,authors,year,url,abstract,fieldsOfStudy,publicationDate`. If the response status is 429 (rate limited) or >= 500 (server error), the system automatically falls back to individual fetching.",
+                    "code_references": ["example-batch-fetch"],
+                    "notes": [
+                      "Requires `SEMANTIC_SCHOLAR_API_KEY` environment variable",
+                      "Batch requests are limited to a maximum number of papers per request"
+                    ],
+                    "references": [
+                      {
+                        "title": "Semantic Scholar Graph API",
+                        "url": "https://api.semanticscholar.org/api-docs/graph"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "2.2.1.2",
+                    "title": "Stage 2: Individual Fallback",
+                    "content": "If batch fetching fails, the system falls back to fetching papers individually with rate limiting protection.",
+                    "technical_details": "The individual fallback implements a 500ms delay between requests to prevent rate limiting. It performs progressive state updates for better UX and gracefully degrades to basic metadata if detailed information is unavailable.",
+                    "code_references": ["example-individual-fetch"],
+                    "notes": [
+                      "Individual fetching is slower but more reliable",
+                      "Progressive updates provide better user experience during long operations"
+                    ],
+                    "references": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "2.3",
+            "title": "Citation Formatting System",
+            "content": "The system supports multiple academic citation styles with conditional formatting logic.",
+            "subsections": [
+              {
+                "id": "2.3.1",
+                "title": "Multi-Style Formatter",
+                "content": "The `formatCitation` function implements four academic citation styles: APA, MLA, Chicago, and Harvard. Each style has specific formatting rules for author lists, dates, and citation structure.",
+                "technical_details": "Author list formatting varies by style. APA and Harvard use ampersands for multiple authors, while MLA and Chicago use 'and'. The function handles edge cases like single authors, two authors, and multiple authors (using 'et al.').",
+                "code_references": ["example-format-citation"],
+                "notes": [
+                  "Citation styles follow official academic formatting guidelines",
+                  "Date formatting includes fallback to current date if publication date is unavailable"
+                ],
+                "references": []
+              }
+            ]
+          },
+          {
+            "id": "2.4",
+            "title": "Premium Features: AI Citation Manipulation",
+            "content": "The premium interface provides advanced AI-powered features for manipulating citations.",
+            "subsections": [
+              {
+                "id": "2.4.1",
+                "title": "Recite Functionality",
+                "content": "The recite feature allows users to replace a citation with an alternative source while maintaining sentence context. This is useful when a better source is found for the same claim.",
+                "technical_details": "The `handleRecite` function sends the cited sentence and file ID to `/api/recite` endpoint. The API returns a new citation and paper ID. The function then updates the highlighted sentences array and syncs with the Tiptap editor before saving to Supabase.",
+                "code_references": ["example-recite"],
+                "notes": [
+                  "The original sentence structure is preserved",
+                  "Only the citation portion is replaced"
+                ],
+                "references": []
+              },
+              {
+                "id": "2.4.2",
+                "title": "Rephrase Workflow",
+                "content": "The rephrase feature generates alternative phrasings for cited sentences, allowing users to improve clarity or avoid repetition.",
+                "technical_details": "The rephrase workflow is a two-phase process: (1) Generate options via `/api/rephrase` endpoint, (2) Apply selected option via `/api/apply-rephrase` endpoint. The system updates both the UI state and the Tiptap editor content atomically.",
+                "code_references": ["example-rephrase"],
+                "notes": [
+                  "Multiple rephrase options are generated for user selection",
+                  "Changes are immediately reflected in the editor"
+                ],
+                "references": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "api_reference": {
+    "classes": [
+      {
+        "name": "CitationContent",
+        "module": "ai-citation-pro",
+        "path": "app/(routes)/ai-citation-pro/page.tsx",
+        "description": "Advanced interactive citation editor component with AI-powered manipulation capabilities.",
+        "signature": "CitationContent(): JSX.Element",
+        "parameters": [],
+        "attributes": [
+          {
+            "name": "highlightedSentences",
+            "type": "HighlightedSentence[]",
+            "description": "Array of sentences containing citations, with highlighting state and metadata."
+          },
+          {
+            "name": "expandedSentence",
+            "type": "string | null",
+            "description": "Currently expanded sentence ID for showing detailed citation options."
+          },
+          {
+            "name": "loadingRecite",
+            "type": "Record<string, boolean>",
+            "description": "Loading state for recite operations, keyed by sentence ID."
+          },
+          {
+            "name": "loadingRephrase",
+            "type": "Record<string, boolean>",
+            "description": "Loading state for rephrase operations, keyed by sentence ID."
+          }
+        ],
+        "methods": [
+          {
+            "name": "handleRecite",
+            "signature": "handleRecite(citedSentence: string, fileId: string): Promise<void>",
+            "description": "Replace citation with alternative source while maintaining sentence context.",
+            "parameters": [
+              {
+                "name": "citedSentence",
+                "type": "string",
+                "required": true,
+                "default": null,
+                "description": "The sentence containing the citation to replace. Must include the citation in parentheses."
+              },
+              {
+                "name": "fileId",
+                "type": "string",
+                "required": true,
+                "default": null,
+                "description": "Unique identifier for the document file in Supabase."
+              }
+            ],
+            "returns": {
+              "type": "Promise<void>",
+              "description": "Updates UI state and syncs with Tiptap editor. Does not return a value."
+            },
+            "examples": [
+              {
+                "code": "await handleRecite(\n  'Machine learning is transforming research (Smith, 2020).',\n  'file-123'\n);",
+                "description": "Replace citation in a sentence with a new source"
+              }
+            ],
+            "notes": [
+              "The function extracts the sentence without citation before appending the new citation",
+              "Updates are persisted to Supabase after editor sync"
+            ],
+            "see_also": ["handleRephrase", "handleRemoveSentence"]
+          },
+          {
+            "name": "handleRephrase",
+            "signature": "handleRephrase(citedSentence: string): Promise<void>",
+            "description": "Generate alternative phrasings for a cited sentence.",
+            "parameters": [
+              {
+                "name": "citedSentence",
+                "type": "string",
+                "required": true,
+                "default": null,
+                "description": "The sentence to rephrase, including its citation."
+              }
+            ],
+            "returns": {
+              "type": "Promise<void>",
+              "description": "Opens modal with rephrase options. Does not return a value."
+            },
+            "examples": [
+              {
+                "code": "await handleRephrase('Machine learning is transforming research (Smith, 2020).');",
+                "description": "Generate rephrase options for a sentence"
+              }
+            ],
+            "notes": [
+              "This is the first phase of the rephrase workflow",
+              "User must call `applyRephrase` to apply a selected option"
+            ],
+            "see_also": ["applyRephrase", "handleRecite"]
+          },
+          {
+            "name": "applyRephrase",
+            "signature": "applyRephrase(selectedOption: string): Promise<void>",
+            "description": "Apply a selected rephrase option to replace the original sentence.",
+            "parameters": [
+              {
+                "name": "selectedOption",
+                "type": "string",
+                "required": true,
+                "default": null,
+                "description": "The rephrased sentence option selected by the user."
+              }
+            ],
+            "returns": {
+              "type": "Promise<void>",
+              "description": "Updates sentence in UI and editor, then saves to Supabase."
+            },
+            "examples": [
+              {
+                "code": "await applyRephrase('Research is being revolutionized by machine learning (Smith, 2020).');",
+                "description": "Apply a selected rephrase option"
+              }
+            ],
+            "notes": [
+              "This is the second phase of the rephrase workflow",
+              "Must be called after `handleRephrase` generates options"
+            ],
+            "see_also": ["handleRephrase"]
+          },
+          {
+            "name": "handleRemoveSentence",
+            "signature": "handleRemoveSentence(sentence: string): Promise<void>",
+            "description": "Remove a cited sentence from the document with optimistic UI updates.",
+            "parameters": [
+              {
+                "name": "sentence",
+                "type": "string",
+                "required": true,
+                "default": null,
+                "description": "The sentence to remove from the document."
+              }
+            ],
+            "returns": {
+              "type": "Promise<void>",
+              "description": "Removes sentence from UI and editor, with error recovery on failure."
+            },
+            "examples": [
+              {
+                "code": "await handleRemoveSentence('Machine learning is transforming research (Smith, 2020).');",
+                "description": "Remove a cited sentence from the document"
+              }
+            ],
+            "notes": [
+              "Implements optimistic UI updates for better UX",
+              "Automatically recovers from errors by reloading from Supabase"
+            ],
+            "see_also": ["handleRecite"]
+          }
+        ],
+        "examples": [
+          {
+            "code": "import { CitationContent } from '@/app/(routes)/ai-citation-pro/page';\n\nfunction MyDocument() {\n  return (\n    <div>\n      <CitationContent />\n    </div>\n  );\n}",
+            "description": "Basic usage of the CitationContent component"
+          }
+        ],
+        "see_also": [
+          {
+            "name": "Citation",
+            "description": "Basic citation viewer component",
+            "reference": "api_reference.classes[1]"
+          }
+        ]
+      },
+      {
+        "name": "Citation",
+        "module": "ai-citation",
+        "path": "app/(routes)/ai-citation/page.tsx",
+        "description": "Read-only citation viewer component with PDF highlighting capabilities.",
+        "signature": "Citation(): JSX.Element",
+        "parameters": [],
+        "attributes": [
+          {
+            "name": "uniqueReferences",
+            "type": "Reference[]",
+            "description": "Deduplicated list of paper references extracted from the document."
+          },
+          {
+            "name": "paperDetails",
+            "type": "Record<string, PaperDetails>",
+            "description": "Cached paper metadata from Semantic Scholar API, keyed by paper ID."
+          },
+          {
+            "name": "highlightEnabled",
+            "type": "boolean",
+            "description": "Whether PDF highlighting is currently enabled."
+          }
+        ],
+        "methods": [],
+        "examples": [
+          {
+            "code": "import { Citation } from '@/app/(routes)/ai-citation/page';\n\nfunction DocumentViewer() {\n  return <Citation />;\n}",
+            "description": "Basic usage - component automatically extracts fileId from URL"
+          }
+        ],
+        "see_also": [
+          {
+            "name": "CitationContent",
+            "description": "Premium citation editor with manipulation features",
+            "reference": "api_reference.classes[0]"
+          }
+        ]
+      }
+    ],
+    "functions": [
+      {
+        "name": "formatCitation",
+        "module": "citation-utils",
+        "path": "lib/utils/citation-formatter.ts",
+        "description": "Format citation in multiple academic styles (APA, MLA, Chicago, Harvard).",
+        "signature": "formatCitation(paperId: string, style: CitationStyle): string",
+        "parameters": [
+          {
+            "name": "paperId",
+            "type": "string",
+            "required": true,
+            "default": null,
+            "description": "Semantic Scholar paper ID or internal paper identifier."
+          },
+          {
+            "name": "style",
+            "type": "CitationStyle",
+            "required": true,
+            "default": null,
+            "description": "Citation style to use. Must be one of: 'APA' | 'MLA' | 'Chicago' | 'Harvard'."
+          }
+        ],
+        "returns": {
+          "type": "string",
+          "description": "Formatted citation string according to the specified style."
+        },
+        "examples": [
+          {
+            "code": "const citation = formatCitation('paper-123', 'APA');\n// Returns: \"Smith, J. (2020). Machine Learning in Research. Journal of AI, 15(3).\"",
+            "description": "Format citation in APA style"
+          },
+          {
+            "code": "const citation = formatCitation('paper-123', 'MLA');\n// Returns: \"Smith, John. \\\"Machine Learning in Research.\\\" Journal of AI, 15.3 (2020).\"",
+            "description": "Format citation in MLA style"
+          }
+        ],
+        "notes": [
+          "Supports four academic citation styles with conditional formatting logic",
+          "Author list formatting varies by style (ampersand vs 'and')",
+          "Handles edge cases: single author, two authors, multiple authors (et al.)"
+        ],
+        "see_also": [
+          {
+            "name": "fetchPaperDetailsBatch",
+            "description": "Fetch paper metadata for citation formatting",
+            "reference": "api_reference.functions[1]"
+          }
+        ]
+      },
+      {
+        "name": "fetchPaperDetailsBatch",
+        "module": "citation-utils",
+        "path": "lib/utils/paper-fetcher.ts",
+        "description": "Fetch multiple paper details from Semantic Scholar API in a single batch request.",
+        "signature": "fetchPaperDetailsBatch(paperIds: string[]): Promise<Record<string, PaperDetails>>",
+        "parameters": [
+          {
+            "name": "paperIds",
+            "type": "string[]",
+            "required": true,
+            "default": null,
+            "description": "Array of Semantic Scholar paper IDs to fetch."
+          }
+        ],
+        "returns": {
+          "type": "Promise<Record<string, PaperDetails>>",
+          "description": "Promise resolving to a record of paper details, keyed by paper ID."
+        },
+        "examples": [
+          {
+            "code": "const papers = await fetchPaperDetailsBatch(['paper-1', 'paper-2', 'paper-3']);\n// Returns: { 'paper-1': {...}, 'paper-2': {...}, 'paper-3': {...} }",
+            "description": "Fetch multiple papers in a single request"
+          }
+        ],
+        "notes": [
+          "Automatically falls back to individual fetching if batch request fails",
+          "Requires SEMANTIC_SCHOLAR_API_KEY environment variable",
+          "Rate limited - may return 429 status if too many requests"
+        ],
+        "see_also": [
+          {
+            "name": "fetchPaperDetailsIndividual",
+            "description": "Fallback method for individual paper fetching",
+            "reference": "api_reference.functions[2]"
+          }
+        ]
+      },
+      {
+        "name": "fetchPaperDetailsIndividual",
+        "module": "citation-utils",
+        "path": "lib/utils/paper-fetcher.ts",
+        "description": "Fetch paper details individually with rate limiting protection.",
+        "signature": "fetchPaperDetailsIndividual(refs: Reference[]): Promise<Record<string, PaperDetails>>",
+        "parameters": [
+          {
+            "name": "refs",
+            "type": "Reference[]",
+            "required": true,
+            "default": null,
+            "description": "Array of reference objects containing paper IDs."
+          }
+        ],
+        "returns": {
+          "type": "Promise<Record<string, PaperDetails>>",
+          "description": "Promise resolving to a record of paper details, keyed by paper ID."
+        },
+        "examples": [
+          {
+            "code": "const papers = await fetchPaperDetailsIndividual([\n  { paper_id: 'paper-1', ... },\n  { paper_id: 'paper-2', ... }\n]);",
+            "description": "Fetch papers individually with 500ms delay between requests"
+          }
+        ],
+        "notes": [
+          "Implements 500ms delay between requests to prevent rate limiting",
+          "Performs progressive state updates for better UX",
+          "Gracefully degrades to basic metadata if detailed info unavailable"
+        ],
+        "see_also": [
+          {
+            "name": "fetchPaperDetailsBatch",
+            "description": "Primary method for batch fetching",
+            "reference": "api_reference.functions[1]"
+          }
+        ]
+      }
+    ]
+  },
+  "examples": [
+    {
+      "id": "example-basic-citation",
+      "title": "Basic Citation Display",
+      "description": "Display citations for a PDF document using the basic Citation component.",
+      "code": "// The component automatically extracts fileId from URL query parameters\n// Example URL: /ai-citation?fileId=abc123\n\nimport { Citation } from '@/app/(routes)/ai-citation/page';\n\nfunction DocumentViewer() {\n  return (\n    <div>\n      <Citation />\n    </div>\n  );\n}",
+      "output": null
+    },
+    {
+      "id": "example-premium-citation",
+      "title": "Premium Citation Editor",
+      "description": "Use the premium CitationContent component for interactive citation editing.",
+      "code": "import { CitationContent } from '@/app/(routes)/ai-citation-pro/page';\n\nfunction AdvancedEditor() {\n  return (\n    <div className=\"editor-container\">\n      <CitationContent />\n    </div>\n  );\n}",
+      "output": null
+    },
+    {
+      "id": "example-batch-fetch",
+      "title": "Batch Paper Fetching",
+      "description": "Fetch multiple papers efficiently using the batch API.",
+      "code": "import { fetchPaperDetailsBatch } from '@/lib/utils/paper-fetcher';\n\nconst paperIds = ['paper-1', 'paper-2', 'paper-3'];\nconst papers = await fetchPaperDetailsBatch(paperIds);\n\n// Access individual papers\nconst paper1 = papers['paper-1'];\nconsole.log(paper1.title, paper1.authors);",
+      "output": null
+    },
+    {
+      "id": "example-individual-fetch",
+      "title": "Individual Paper Fetching",
+      "description": "Fallback to individual fetching when batch fails.",
+      "code": "import { fetchPaperDetailsIndividual } from '@/lib/utils/paper-fetcher';\n\nconst refs = [\n  { paper_id: 'paper-1', paper_title: 'Title 1' },\n  { paper_id: 'paper-2', paper_title: 'Title 2' }\n];\n\nconst papers = await fetchPaperDetailsIndividual(refs);",
+      "output": null
+    },
+    {
+      "id": "example-format-citation",
+      "title": "Format Citation in Different Styles",
+      "description": "Format the same paper in different citation styles.",
+      "code": "import { formatCitation } from '@/lib/utils/citation-formatter';\n\nconst paperId = 'paper-123';\n\n// APA style\nconst apa = formatCitation(paperId, 'APA');\n// \"Smith, J. (2020). Machine Learning in Research. Journal of AI, 15(3).\"\n\n// MLA style\nconst mla = formatCitation(paperId, 'MLA');\n// \"Smith, John. \\\"Machine Learning in Research.\\\" Journal of AI, 15.3 (2020).\"\n\n// Chicago style\nconst chicago = formatCitation(paperId, 'Chicago');\n// \"Smith, John. \\\"Machine Learning in Research.\\\" Journal of AI. Accessed 2026-02-08.\"\n\n// Harvard style\nconst harvard = formatCitation(paperId, 'Harvard');\n// \"Smith, J 2020, Machine Learning in Research, Journal of AI, viewed 8 February 2026.\"",
+      "output": null
+    },
+    {
+      "id": "example-recite",
+      "title": "Replace Citation with Recite",
+      "description": "Use the recite feature to replace a citation with an alternative source.",
+      "code": "// Inside CitationContent component\nconst handleReciteExample = async () => {\n  const sentence = 'Machine learning is transforming research (Smith, 2020).';\n  const fileId = 'file-123';\n  \n  await handleRecite(sentence, fileId);\n  // Citation is replaced with new source, sentence structure preserved\n};",
+      "output": null
+    },
+    {
+      "id": "example-rephrase",
+      "title": "Rephrase Cited Sentence",
+      "description": "Generate and apply alternative phrasings for a cited sentence.",
+      "code": "// Inside CitationContent component\nconst handleRephraseExample = async () => {\n  const sentence = 'Machine learning is transforming research (Smith, 2020).';\n  \n  // Phase 1: Generate options\n  await handleRephrase(sentence);\n  // Modal opens with rephrase options\n  \n  // Phase 2: Apply selected option (user selects from modal)\n  const selected = 'Research is being revolutionized by machine learning (Smith, 2020).';\n  await applyRephrase(selected);\n  // Sentence is updated in editor\n};",
+      "output": null
+    }
+  ],
+  "references": [
+    {
+      "title": "Semantic Scholar Graph API Documentation",
+      "url": "https://api.semanticscholar.org/api-docs/graph",
+      "description": "Official API documentation for Semantic Scholar Graph API"
+    },
+    {
+      "title": "Tiptap Editor Documentation",
+      "url": "https://tiptap.dev/docs",
+      "description": "Rich text editor framework used for content editing"
+    }
+  ]
+}
+
+
+
+
+
+
