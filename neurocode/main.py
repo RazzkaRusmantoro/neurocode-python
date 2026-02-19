@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import routes
-from neurocode.routes import health, mongodb, github, documentation
+from neurocode.routes import health, mongodb, github, documentation, pull_request
 
 app = FastAPI(
     title="NeuroCode Python API",
@@ -39,6 +39,7 @@ app.include_router(health.router)
 app.include_router(mongodb.router)
 app.include_router(github.router)
 app.include_router(documentation.router)
+app.include_router(pull_request.router)
 
 if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")

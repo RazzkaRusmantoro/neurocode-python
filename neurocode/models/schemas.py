@@ -46,3 +46,14 @@ class GetDocumentationRequest(BaseModel):
     s3_key: str
     s3_bucket: Optional[str] = None
 
+
+class AnalyzePullRequestRequest(BaseModel):
+    """Request model for analyzing a pull request"""
+    github_token: str
+    repo_full_name: str
+    pr_number: int
+    organization_id: Optional[str] = None
+    organization_short_id: Optional[str] = None
+    organization_name: Optional[str] = None
+    repository_id: Optional[str] = None
+    repository_name: Optional[str] = None
