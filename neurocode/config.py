@@ -42,6 +42,9 @@ except Exception as e:
     print(f"[Warning] MongoDB service initialization failed: {e}")
     mongodb_service = None
 
+# Initialize tree builder (needs LLM, initialized after llm_service below)
+tree_builder = None
+
 # Load Qdrant configuration from environment
 qdrant_url = os.getenv("QDRANT_URL") or None
 qdrant_api_key = os.getenv("QDRANT_API_KEY") or None
@@ -65,4 +68,21 @@ except ValueError as e:
 except Exception as e:
     print(f"[Warning] LLM service initialization failed: {e}")
     llm_service = None
+
+# Initialize tree builder (uses LLM service)
+from neurocode.services.analysis.tree_builder import TreeBuilder
+try:
+    if llm_service:
+        tree_builder = TreeBuilder(
+            llm_client=llm_service.client,
+            model=llm_service.model,
+            model_fast=llm_service.model_fast,
+        )
+        print("[TreeBuilder] ✓ Tree builder initialized (with LLM)")
+    else:
+        tree_builder = TreeBuilder()
+        print("[TreeBuilder] ✓ Tree builder initialized (without LLM)")
+except Exception as e:
+    print(f"[Warning] Tree builder initialization failed: {e}")
+    tree_builder = None
 

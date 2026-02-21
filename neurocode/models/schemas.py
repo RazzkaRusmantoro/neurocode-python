@@ -47,6 +47,18 @@ class GetDocumentationRequest(BaseModel):
     s3_bucket: Optional[str] = None
 
 
+class GenerateVisualTreeRequest(BaseModel):
+    """Request model for generating a visual repository tree"""
+    github_token: str
+    repo_full_name: str
+    branch: Optional[str] = "main"
+    organization_id: Optional[str] = None
+    organization_short_id: Optional[str] = None
+    organization_name: Optional[str] = None
+    repository_id: Optional[str] = None
+    repository_name: Optional[str] = None
+
+
 class AnalyzePullRequestRequest(BaseModel):
     """Request model for analyzing a pull request"""
     github_token: str
