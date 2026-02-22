@@ -48,7 +48,16 @@ async def run_index_pipeline(
     _log("INDEX PIPELINE (RAG)")
     _log("=" * 60)
     _log(f"Repository: {repo_full_name}")
-    _log(f"Branch: {branch}")
+    # Use repo's default branch when none specified or when main/master was used as placeholder
+    if not branch or branch.strip().lower() in ("main", "master"):
+        resolved_branch = await github_fetcher.get_default_branch(repo_full_name, github_token)
+        if resolved_branch:
+            branch = resolved_branch
+            _log(f"Branch: {branch} (repo default)")
+        else:
+            _log(f"Branch: {branch or 'main'} (fallback; could not fetch default)")
+    else:
+        _log(f"Branch: {branch}")
     _log(f"Target: {target or 'N/A'}")
     _log("=" * 60)
     path = target or ""

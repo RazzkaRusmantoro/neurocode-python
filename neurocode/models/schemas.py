@@ -2,7 +2,7 @@
 Pydantic models for API requests
 """
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 
 class FetchRepositoryRequest(BaseModel):
@@ -82,3 +82,21 @@ class AnalyzePullRequestRequest(BaseModel):
     organization_name: Optional[str] = None
     repository_id: Optional[str] = None
     repository_name: Optional[str] = None
+
+
+class OrgContext(BaseModel):
+    """Organization context for chat (search all repos in the org)"""
+    org_short_id: str
+
+
+class ChatMessage(BaseModel):
+    """Single message in chat history"""
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    """Request model for RAG chat (organization-scoped)"""
+    message: str
+    history: Optional[List[ChatMessage]] = []
+    org_context: Optional[OrgContext] = None

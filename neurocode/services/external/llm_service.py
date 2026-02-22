@@ -5,7 +5,7 @@ import os
 import json
 import re
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from anthropic import Anthropic
 
 
@@ -20,6 +20,43 @@ class LLMService:
         self.client = Anthropic(api_key=api_key)
         self.model = "claude-haiku-4-5-20251001"  # Premium model for main generation
         self.model_fast = "claude-haiku-4-5-20251001"  # Cheaper model for simple tasks (~10x cheaper)
+
+    def chat_with_context(
+        self,
+        system_prompt: str,
+        conversation_history: List[Dict[str, str]],
+        user_message: str,
+        max_tokens: int = 4096,
+    ) -> str:
+        """
+        Chat with conversation history and a system prompt (e.g. RAG context).
+
+        Args:
+            system_prompt: System message (e.g. instructions + retrieved code chunks).
+            conversation_history: List of {"role": "user"|"assistant", "content": str}.
+            user_message: The new user message to respond to.
+            max_tokens: Max tokens for the response.
+
+        Returns:
+            The assistant's reply text.
+        """
+        messages: List[Dict[str, str]] = []
+        for turn in conversation_history:
+            role = turn.get("role")
+            content = turn.get("content")
+            if role and content and role in ("user", "assistant"):
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": user_message})
+
+        response = self.client.messages.create(
+            model=self.model_fast,
+            max_tokens=max_tokens,
+            system=system_prompt,
+            messages=messages,
+        )
+        if response.content and len(response.content) > 0:
+            return response.content[0].text.strip()
+        return ""
     
     def generate_documentation(
         self,

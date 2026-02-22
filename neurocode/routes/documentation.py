@@ -108,12 +108,20 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
                 status_code=500,
                 detail="LLM service not available. Please set ANTHROPIC_API_KEY environment variable."
             )
+
+        # Use repo default branch when none specified or main/master placeholder
+        branch = request.branch or "main"
+        if not branch.strip() or branch.strip().lower() in ("main", "master"):
+            resolved = await github_fetcher.get_default_branch(request.repo_full_name, request.github_token)
+            if resolved:
+                branch = resolved
+                print(f"[generate-docs-rag] Using repo default branch: {branch}")
         
         print("\n" + "="*60)
         print("RAG DOCUMENTATION GENERATION (FULL PIPELINE)")
         print("="*60)
         print(f"Repository: {request.repo_full_name}")
-        print(f"Branch: {request.branch}")
+        print(f"Branch: {branch}")
         print(f"Prompt: {request.prompt}")
         print("="*60)
         
@@ -122,7 +130,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         files = await github_fetcher.fetch_repository_files(
             repo_full_name=request.repo_full_name,
             access_token=request.github_token,
-            branch=request.branch,
+            branch=branch,
             path="",
         )
         print(f"✓ Fetched {len(files)} files")
@@ -132,7 +140,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
                 "success": False,
                 "message": "No files found in repository",
                 "repository": request.repo_full_name,
-                "branch": request.branch,
+                "branch": branch,
             }
         
         # Step 2 & 3: Parse and chunk code (same as generate-documentation)
@@ -162,7 +170,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         print("\n[Step 4/10] Saving results to local storage...")
         saved_paths = storage_service.save_analysis_results(
             repo_full_name=request.repo_full_name,
-            branch=request.branch,
+            branch=branch,
             results=analysis_results
         )
         print(f"✓ Results saved to: {saved_paths['directory']}")
@@ -193,7 +201,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         org_name_safe = sanitize_name(request.organization_name or request.organization_short_id)
         org_slug_safe = sanitize_name(request.organization_short_id)
         repo_name_safe = sanitize_name(request.repository_name)
-        collection_name = f"{org_name_safe}_{org_slug_safe}_{repo_name_safe}_{request.branch}"
+        collection_name = f"{org_name_safe}_{org_slug_safe}_{repo_name_safe}_{branch}"
         
         # Prepare metadata to link collection to org and repo
         collection_metadata = {}
@@ -204,7 +212,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         if request.repository_id:
             collection_metadata["repository_id"] = request.repository_id
         collection_metadata["repo_full_name"] = request.repo_full_name
-        collection_metadata["branch"] = request.branch
+        collection_metadata["branch"] = branch
         
         # Vectorize chunks (will create collection if doesn't exist, or update if exists)
         vectorization_result = vectorizer.vectorize_chunks_from_file(
@@ -813,7 +821,7 @@ Description:"""
         
         doc_saved_paths = storage_service.save_documentation(
             repo_full_name=request.repo_full_name,
-            branch=request.branch,
+            branch=branch,
             prompt=request.prompt,
             documentation=documentation_markdown,
             metadata=doc_metadata
@@ -835,7 +843,7 @@ Description:"""
                 s3_key = s3_service.generate_s3_key(
                     organization_id=request.organization_id,
                     repository_id=request.repository_id,
-                    branch=request.branch,
+                    branch=branch,
                     scope="custom",
                     documentation_id=doc_id,
                     file_extension="json"
@@ -848,7 +856,7 @@ Description:"""
                         "generated_at": datetime.now().isoformat(),
                         "prompt": request.prompt,
                         "repository": request.repo_full_name,
-                        "branch": request.branch,
+                        "branch": branch,
                         "scope": "custom"
                     },
                     "documentation": documentation,
@@ -880,7 +888,7 @@ Description:"""
             "title": doc_title,
             "description": doc_description if doc_description else None,
             "repository": request.repo_full_name,
-            "branch": request.branch,
+            "branch": branch,
             "collection_name": collection_name,
             "chunks_used": len(search_results),
             "metadata": analysis_results["metadata"],

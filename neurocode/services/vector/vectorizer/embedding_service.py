@@ -14,9 +14,10 @@ class EmbeddingService:
         Initialize embedding service
         
         Args:
-            model_name: Sentence transformer model name
-                - "all-MiniLM-L6-v2" (default): Fast, 384 dims, good quality
+            model_name: Model name (HuggingFace or sentence-transformers). Examples:
+                - "all-MiniLM-L6-v2" (default): Fast, 384 dims, general text
                 - "all-mpnet-base-v2": Better quality, 768 dims, slower
+                - "microsoft/codebert-base": Code-specific, 768 dims (set EMBEDDING_MODEL in .env)
         """
         print(f"[EmbeddingService] Loading model: {model_name}...")
         self.model = SentenceTransformer(model_name)

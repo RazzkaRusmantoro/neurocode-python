@@ -70,6 +70,28 @@ class GitHubFetcher:
             )
         
         return files
+
+    async def get_default_branch(self, repo_full_name: str, access_token: str) -> Optional[str]:
+        """
+        Get the repository's default branch (e.g. main, master, or whatever is set on GitHub).
+        """
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(
+                    f"https://api.github.com/repos/{repo_full_name}",
+                    headers={
+                        "Authorization": f"token {access_token}",
+                        "Accept": "application/vnd.github.v3+json",
+                    },
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    default = data.get("default_branch")
+                    if default:
+                        return default
+        except Exception as e:
+            print(f"[GitHubFetcher] get_default_branch failed: {e}")
+        return None
     
     async def _get_branch_sha(
         self,

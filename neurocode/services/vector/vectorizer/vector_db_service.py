@@ -292,3 +292,34 @@ class VectorDBService:
         except Exception as e:
             print(f"[VectorDBService] Error listing collections by org: {e}")
             return []
+
+    def list_collections_by_org_short_id(self, organization_short_id: str) -> List[str]:
+        """
+        List all collections for an organization by its short ID (e.g. from URL).
+
+        Args:
+            organization_short_id: Organization short ID (e.g. "acme" or "org-acme")
+
+        Returns:
+            List of collection names
+        """
+        try:
+            # Normalize: allow "org-acme" or "acme"
+            short_id = (organization_short_id or "").strip()
+            if short_id.startswith("org-"):
+                short_id = short_id[4:]
+            collections = self.client.get_collections()
+            org_collections = []
+            for col in collections.collections:
+                metadata = self.get_collection_metadata(col.name)
+                if not metadata:
+                    continue
+                meta_short = (metadata.get("organization_short_id") or "").strip()
+                if meta_short.startswith("org-"):
+                    meta_short = meta_short[4:]
+                if meta_short and meta_short.lower() == short_id.lower():
+                    org_collections.append(col.name)
+            return org_collections
+        except Exception as e:
+            print(f"[VectorDBService] Error listing collections by org_short_id: {e}")
+            return []
