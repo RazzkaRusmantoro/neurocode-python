@@ -13,8 +13,8 @@
         },
         "sections": {
           "type": "array",
-          "description": "Array of documentation sections with hierarchical numbering (1, 1.1, 2, 2.1, etc.). Maximum 5 sections total.",
-          "maxItems": 5,
+          "description": "Array of documentation sections with hierarchical numbering (1, 1.1, 2, 2.1, etc.). Maximum 10 sections total.",
+          "maxItems": 10,
           "items": {
             "type": "object",
             "required": ["id", "title", "description"],
@@ -52,8 +52,8 @@
     },
     "code_references": {
       "type": "array",
-      "description": "Array of code reference IDs (referenceId strings) ONLY. Maximum 10 references. Must be actual unique classes, functions, methods from the code (not generic names like 'useEffect'). Simple array like ['processCitation', 'formatCitation']. Full details will be extracted and stored in MongoDB separately.",
-      "maxItems": 10,
+      "description": "Array of code reference IDs (referenceId strings) ONLY. Maximum 15 references. Must be actual unique classes, functions, methods from the code (not generic names like 'useEffect'). Simple array like ['processCitation', 'formatCitation']. Full details will be extracted and stored in MongoDB separately.",
+      "maxItems": 15,
       "items": {
         "type": "string"
       }

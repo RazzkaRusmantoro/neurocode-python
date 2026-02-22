@@ -227,7 +227,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         search_results = vectorizer.search(
             collection_name=collection_name,
             query=request.prompt,
-            top_k=request.top_k or 10
+            top_k=request.top_k or 20
         )
         
         if not search_results:
@@ -251,9 +251,9 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         code_reference_ids_from_llm = structured_result.get("code_reference_ids", [])
         
         # Validate limits
-        if len(code_reference_ids_from_llm) > 10:
-            print(f"  ⚠ Warning: {len(code_reference_ids_from_llm)} code references found, limiting to 10")
-            code_reference_ids_from_llm = code_reference_ids_from_llm[:10]
+        if len(code_reference_ids_from_llm) > 15:
+            print(f"  ⚠ Warning: {len(code_reference_ids_from_llm)} code references found, limiting to 15")
+            code_reference_ids_from_llm = code_reference_ids_from_llm[:15]
         
         # Extract code reference details
         code_reference_details = []

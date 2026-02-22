@@ -38,7 +38,7 @@ class GenerateDocsRAGRequest(BaseModel):
     organization_name: Optional[str] = None
     repository_id: Optional[str] = None
     repository_name: Optional[str] = None
-    top_k: Optional[int] = 10  # Number of chunks to retrieve
+    top_k: Optional[int] = 20  # Number of chunks to retrieve
 
 
 class GetDocumentationRequest(BaseModel):

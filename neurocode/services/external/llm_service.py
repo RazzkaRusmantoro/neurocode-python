@@ -144,7 +144,7 @@ Your documentation should:
 **INSTRUCTIONS:**
 1. Generate the main documentation in structured JSON format with hierarchical sections:
    - **REQUIRED**: Include a top-level `description` field (2-3 sentences) that briefly describes what this documentation is about. This should be a concise overview of the documentation's purpose and scope.
-   - MAXIMUM 5 sections total (including subsections count toward this limit)
+   - MAXIMUM 10 sections total (including subsections count toward this limit) - use only as many as needed, up to 10
    - Create sections with IDs like "1", "1.1", "2", "2.1", "2.2", etc.
    - **CRITICAL REQUIREMENT**: The documentation MUST include subsections. Not every section needs subsections, but the overall documentation structure MUST have at least some subsections (e.g., section "1" should have "1.1", "1.2", etc., or section "2" should have "2.1", "2.2", etc.). This is REQUIRED - do not generate documentation without any subsections.
    - Each section has: id, title, description, code_references (array of IDs), and optional subsections (but remember: subsections MUST exist somewhere in the documentation)
@@ -173,7 +173,7 @@ Your documentation should:
    - Prioritize quality and detail over quantity
 
 2. Extract code references (functions, classes, methods) from the ACTUAL CODE:
-   - MAXIMUM 10 code references total (but use only as many as needed - don't force it to 10)
+   - MAXIMUM 15 code references total (but use only as many as needed - don't force it to 15)
    - ONLY include actual, unique classes, functions, methods from the provided code context
    - DO NOT include generic names like "useEffect", "handleClick", "onSubmit", etc.
    - DO NOT make up function or class names that don't exist in the code
