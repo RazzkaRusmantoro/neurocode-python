@@ -21,6 +21,7 @@ from neurocode.config import (
     s3_service,
     mongodb_service
 )
+from neurocode.services.index_pipeline import run_index_pipeline
 
 router = APIRouter()
 
@@ -56,166 +57,26 @@ async def generate_documentation(request: GenerateDocumentationRequest):
         print(f"Scope: {request.scope}")
         print(f"Target: {request.target or 'N/A'}")
         print("="*60)
-        
-        # Step 1: Determine path based on scope and target
-        path = ""
-        if request.target:
-            path = request.target
-        
-        # Step 2: Fetch repository files
-        print("\n[Step 1/5] Fetching files from GitHub...")
-        files = await github_fetcher.fetch_repository_files(
+        result = await run_index_pipeline(
+            github_token=request.github_token,
             repo_full_name=request.repo_full_name,
-            access_token=request.github_token,
-            branch=request.branch,
-            path=path,
+            branch=request.branch or "main",
+            target=request.target,
+            organization_id=request.organization_id,
+            organization_short_id=request.organization_short_id,
+            organization_name=request.organization_name,
+            repository_id=request.repository_id,
+            repository_name=request.repository_name,
         )
-        print(f"✓ Fetched {len(files)} files")
-        
-        if len(files) == 0:
-            return {
-                "success": False,
-                "message": "No files found in repository",
-                "repository": request.repo_full_name,
-                "branch": request.branch,
-            }
-        
-        # Step 3: Parse and chunk code
-        print("\n[Step 2/5] Parsing code structure...")
-        print("[Step 3/5] Creating semantic chunks...")
-        
-        # Prepare files for analyzer
-        files_for_analysis = [
-            {
-                "path": file["path"],
-                "content": file["content"],
-                "language": file.get("language")
-            }
-            for file in files
-        ]
-        
-        # Analyze and chunk
-        analysis_results = await code_analyzer.analyze_and_chunk(
-            files_for_analysis,
-            chunking_strategy="hybrid"  # Use hybrid strategy for best results
-        )
-        
-        print(f"✓ Parsed {analysis_results['metadata']['totalFunctions']} functions")
-        print(f"✓ Created {analysis_results['metadata']['totalChunks']} chunks")
-        
-        # Step 4: Save results locally
-        print("\n[Step 4/5] Saving results to local storage...")
-        saved_paths = storage_service.save_analysis_results(
-            repo_full_name=request.repo_full_name,
-            branch=request.branch,
-            results=analysis_results
-        )
-        
-        print(f"✓ Results saved to: {saved_paths['directory']}")
-        
-        # Step 5: Vectorize chunks
-        print("\n[Step 5/5] Vectorizing chunks...")
-        # Create collection name using NeuroCode platform org and repo names
-        # Format: {org_name}_{org_slug_id}_{repo_name}_{branch}
-        # MUST use platform names, NOT GitHub names!
-        
-        # Sanitize names for collection name (remove special chars, spaces, etc.)
-        def sanitize_name(name: str) -> str:
-            """Sanitize name for use in collection name"""
-            if not name:
-                return ""
-            # Replace spaces, slashes, dots, hyphens with underscores
-            sanitized = name.replace(' ', '_').replace('/', '_').replace('.', '_').replace('-', '_')
-            # Remove any remaining special characters except alphanumeric and underscore
-            sanitized = ''.join(c if c.isalnum() or c == '_' else '_' for c in sanitized)
-            # Remove multiple consecutive underscores
-            sanitized = '_'.join(filter(None, sanitized.split('_')))
-            return sanitized.lower()
-        
-        # Build collection name: {org_name}_{org_slug_id}_{repo_name}_{branch}
-        # REQUIRED: Must have org_slug_id and repo_name from platform, otherwise raise error
-        
-        # Get org name (prefer organization_name, fallback to short_id)
-        org_name_safe = ""
-        if request.organization_name:
-            org_name_safe = sanitize_name(request.organization_name)
-        elif request.organization_short_id:
-            org_name_safe = sanitize_name(request.organization_short_id)
-        else:
-            # If no org name or short_id, we can't create proper collection name
-            raise HTTPException(
-                status_code=400,
-                detail="Missing required fields: organization_name or organization_short_id must be provided for collection naming"
-            )
-        
-        # Get org slug ID (REQUIRED - must have short_id)
-        org_slug_safe = ""
-        if request.organization_short_id:
-            org_slug_safe = sanitize_name(request.organization_short_id)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Missing required field: organization_short_id must be provided for collection naming"
-            )
-        
-        # Get repo name (REQUIRED - must have repository_name from platform)
-        repo_name_safe = ""
-        if request.repository_name:
-            repo_name_safe = sanitize_name(request.repository_name)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Missing required field: repository_name must be provided for collection naming. Cannot use GitHub repo name."
-            )
-        
-        # Build collection name: {org_name}_{org_slug_id}_{repo_name}_{branch}
-        collection_name = f"{org_name_safe}_{org_slug_safe}_{repo_name_safe}_{request.branch}"
-        
-        print(f"[Collection Name] Using platform names: {collection_name}")
-        print(f"  - Org Name: {org_name_safe}")
-        print(f"  - Org Slug: {org_slug_safe}")
-        print(f"  - Repo Name: {repo_name_safe}")
-        print(f"  - Branch: {request.branch}")
-        
-        # Prepare metadata to link collection to org and repo
-        collection_metadata = {}
-        if request.organization_id:
-            collection_metadata["organization_id"] = request.organization_id
-        if request.organization_short_id:
-            collection_metadata["organization_short_id"] = request.organization_short_id
-        if request.repository_id:
-            collection_metadata["repository_id"] = request.repository_id
-        collection_metadata["repo_full_name"] = request.repo_full_name
-        collection_metadata["branch"] = request.branch
-        
-        vectorization_result = vectorizer.vectorize_chunks_from_file(
-            chunks_file_path=saved_paths["files"]["chunks"],
-            collection_name=collection_name,
-            metadata=collection_metadata
-        )
-        
-        if vectorization_result.get("success"):
-            print(f"✓ Vectorized {vectorization_result['chunks_vectorized']} chunks")
-            print(f"✓ Collection: {vectorization_result['collection_name']}")
-            print(f"✓ Total in collection: {vectorization_result['total_in_collection']}")
-        else:
-            print(f"⚠ Vectorization had issues: {vectorization_result.get('message')}")
-        
+        if not result.get("success"):
+            return result
+        result["scope"] = request.scope
+        result["target"] = request.target
+        result["message"] = "Analysis complete. Results saved locally and vectorized."
         print("="*60 + "\n")
-        
-        # Return results
-        return {
-            "success": True,
-            "repository": request.repo_full_name,
-            "branch": request.branch,
-            "scope": request.scope,
-            "target": request.target,
-            "files_count": len(files),
-            "metadata": analysis_results["metadata"],
-            "saved_paths": saved_paths,
-            "vectorization": vectorization_result if vectorization_result.get("success") else None,
-            "message": "Analysis complete. Results saved locally and vectorized."
-        }
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         print(f"\n[ERROR] Failed to generate documentation: {str(e)}")
         import traceback

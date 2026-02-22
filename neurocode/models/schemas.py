@@ -59,6 +59,19 @@ class GenerateVisualTreeRequest(BaseModel):
     repository_name: Optional[str] = None
 
 
+class QueueIndexRequest(BaseModel):
+    """Request model for queuing a repo index job (background RAG pipeline)"""
+    github_token: str
+    repo_full_name: str
+    branch: Optional[str] = "main"
+    target: Optional[str] = None
+    organization_id: Optional[str] = None
+    organization_short_id: Optional[str] = None
+    organization_name: Optional[str] = None
+    repository_id: Optional[str] = None
+    repository_name: Optional[str] = None
+
+
 class AnalyzePullRequestRequest(BaseModel):
     """Request model for analyzing a pull request"""
     github_token: str
