@@ -12,6 +12,11 @@ from neurocode.config import (
 )
 
 
+def _log(msg: str) -> None:
+    """Print with flush so logs appear immediately in worker terminal."""
+    print(msg, flush=True)
+
+
 def _sanitize_name(name: str) -> str:
     """Sanitize name for use in collection name."""
     if not name:
@@ -38,17 +43,26 @@ async def run_index_pipeline(
     Run the full RAG index pipeline: fetch files → parse → chunk → save → vectorize.
     Raises ValueError if required fields for collection naming are missing.
     """
+    _log("")
+    _log("=" * 60)
+    _log("INDEX PIPELINE (RAG)")
+    _log("=" * 60)
+    _log(f"Repository: {repo_full_name}")
+    _log(f"Branch: {branch}")
+    _log(f"Target: {target or 'N/A'}")
+    _log("=" * 60)
     path = target or ""
 
     # Step 1: Fetch repository files
-    print("\n[Index pipeline] Fetching files from GitHub...")
+    _log("")
+    _log("[Step 1/5] Fetching files from GitHub...")
     files = await github_fetcher.fetch_repository_files(
         repo_full_name=repo_full_name,
         access_token=github_token,
         branch=branch,
         path=path,
     )
-    print(f"✓ Fetched {len(files)} files")
+    _log(f"✓ Fetched {len(files)} files")
 
     if len(files) == 0:
         return {
@@ -59,7 +73,9 @@ async def run_index_pipeline(
         }
 
     # Step 2 & 3: Parse and chunk
-    print("[Index pipeline] Parsing and chunking...")
+    _log("")
+    _log("[Step 2/5] Parsing code structure...")
+    _log("[Step 3/5] Creating semantic chunks...")
     files_for_analysis = [
         {"path": f["path"], "content": f["content"], "language": f.get("language")}
         for f in files
@@ -68,15 +84,35 @@ async def run_index_pipeline(
         files_for_analysis,
         chunking_strategy="hybrid",
     )
-    print(f"✓ Created {analysis_results['metadata']['totalChunks']} chunks")
+    meta = analysis_results["metadata"]
+    total_fns = meta.get("totalFunctions", 0)
+    total_cls = meta.get("totalClasses", 0)
+    total_chunks = meta.get("totalChunks", 0)
+    _log(f"✓ Parsed {total_fns} functions, {total_cls} classes")
+    _log(f"✓ Created {total_chunks} chunks")
+    # Log what got chunked (per-file summary from chunks)
+    chunks_list = analysis_results.get("chunks", [])
+    if chunks_list:
+        by_file: Dict[str, list] = {}
+        for c in chunks_list:
+            fp = c.get("metadata", {}).get("file_path", "")
+            if fp not in by_file:
+                by_file[fp] = []
+            by_file[fp].append(c.get("metadata", {}).get("function_name") or c.get("metadata", {}).get("class_name") or "?")
+        _log("Chunked symbols:")
+        for fp in sorted(by_file.keys()):
+            symbols = by_file[fp]
+            _log(f"  {fp}: {len(symbols)} chunks ({', '.join(symbols[:5])}{'...' if len(symbols) > 5 else ''})")
 
     # Step 4: Save locally
-    print("[Index pipeline] Saving results...")
+    _log("")
+    _log("[Step 4/5] Saving results to local storage...")
     saved_paths = storage_service.save_analysis_results(
         repo_full_name=repo_full_name,
         branch=branch,
         results=analysis_results,
     )
+    _log(f"✓ Results saved to: {saved_paths.get('directory', 'N/A')}")
 
     # Step 5: Build collection name and vectorize
     if not organization_short_id:
@@ -100,7 +136,9 @@ async def run_index_pipeline(
     if repository_id:
         collection_metadata["repository_id"] = repository_id
 
-    print(f"[Index pipeline] Vectorizing into collection: {collection_name}")
+    _log("")
+    _log("[Step 5/5] Vectorizing chunks...")
+    _log(f"  Collection: {collection_name}")
     vectorization_result = vectorizer.vectorize_chunks_from_file(
         chunks_file_path=saved_paths["files"]["chunks"],
         collection_name=collection_name,
@@ -108,9 +146,12 @@ async def run_index_pipeline(
     )
 
     if vectorization_result.get("success"):
-        print(f"✓ Vectorized {vectorization_result['chunks_vectorized']} chunks")
+        _log(f"✓ Vectorized {vectorization_result['chunks_vectorized']} chunks")
+        _log(f"✓ Total in collection: {vectorization_result.get('total_in_collection', 'N/A')}")
     else:
-        print(f"⚠ Vectorization: {vectorization_result.get('message')}")
+        _log(f"⚠ Vectorization: {vectorization_result.get('message')}")
+    _log("=" * 60)
+    _log("")
 
     return {
         "success": True,

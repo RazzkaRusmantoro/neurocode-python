@@ -34,7 +34,7 @@ class CodeAnalyzer:
         await self.parser.initialize()
         
         # Parse files
-        print(f"[CodeAnalyzer] Parsing {len(files)} files...")
+        print(f"[CodeAnalyzer] Parsing {len(files)} files...", flush=True)
         parse_result = await self.parser.parse_files(files)
         
         # Store file contents for chunking
@@ -42,10 +42,10 @@ class CodeAnalyzer:
         self.chunker.set_file_contents(file_contents)
         
         # Create chunks
-        print(f"[CodeAnalyzer] Creating chunks with strategy: {chunking_strategy}...")
+        print(f"[CodeAnalyzer] Creating chunks with strategy: {chunking_strategy}...", flush=True)
         chunks = self.chunker.create_chunks(parse_result, strategy=chunking_strategy)
         
-        print(f"[CodeAnalyzer] ✓ Created {len(chunks)} chunks")
+        print(f"[CodeAnalyzer] ✓ Created {len(chunks)} chunks", flush=True)
         
         # Structure output
         return {
@@ -61,6 +61,10 @@ class CodeAnalyzer:
                 "parseErrors": parse_result.metadata['parseErrors'],
                 "totalFunctions": sum(len(f.functions) for f in parse_result.structure.files),
                 "totalClasses": sum(len(f.classes) for f in parse_result.structure.files),
+                "totalConstants": sum(len(getattr(f, 'constants', [])) for f in parse_result.structure.files),
+                "totalMethods": sum(len(c.methods) for f in parse_result.structure.files for c in f.classes),
+                "totalRoutes": sum(len(getattr(f, 'routes', [])) for f in parse_result.structure.files),
+                "totalDefaultExports": sum(len(getattr(f, 'default_exports', [])) for f in parse_result.structure.files),
             }
         }
     

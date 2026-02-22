@@ -27,6 +27,7 @@ async def queue_index(request: QueueIndexRequest, _: None = Depends(require_inte
     Enqueue a background job to run the RAG index pipeline for a repository.
     Next.js (or other services) can call this after adding a repo.
     """
+    print(f"[queue-index] Received request: repo_full_name={request.repo_full_name} repository_id={request.repository_id}")
     job_id = await enqueue_index_repo(
         github_token=request.github_token,
         repo_full_name=request.repo_full_name,
@@ -39,5 +40,7 @@ async def queue_index(request: QueueIndexRequest, _: None = Depends(require_inte
         repository_name=request.repository_name,
     )
     if job_id is None:
+        print(f"[queue-index] Failed to enqueue: repo_full_name={request.repo_full_name}")
         raise HTTPException(status_code=503, detail="Failed to enqueue index job")
+    print(f"[queue-index] Enqueued job_id={job_id} repo_full_name={request.repo_full_name} repository_id={request.repository_id}")
     return {"enqueued": True, "job_id": job_id}

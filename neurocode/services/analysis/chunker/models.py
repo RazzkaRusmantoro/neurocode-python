@@ -10,8 +10,12 @@ class ChunkType(str, Enum):
     """Type of code chunk"""
     FUNCTION = "function"
     CLASS = "class"
+    METHOD = "method"  # Class method
+    CONSTANT = "constant"  # Top-level constant (object/array)
+    ROUTE = "route"  # Route definition (router.get, app.post, etc.)
+    DEFAULT_EXPORT = "default_export"  # export default ...
     FLOW = "flow"  # Related functions in a call chain
-    FILE = "file"  # Entire file
+    FILE = "file"  # Entire file (fallback when no other chunks)
     SUBSYSTEM = "subsystem"  # All files in a subsystem
 
 

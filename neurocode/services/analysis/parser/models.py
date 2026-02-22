@@ -70,6 +70,30 @@ class ExportStatement(BaseModel):
     type: str  # 'function' | 'class' | 'variable' | 'default'
 
 
+class ConstantDefinition(BaseModel):
+    """Top-level constant (object/array literal or primitive)."""
+    name: str
+    startLine: int
+    endLine: int
+    valueType: str = "object"  # 'object' | 'array' | 'literal'
+    isExported: bool = False
+
+
+class RouteDefinition(BaseModel):
+    """Route definition (e.g. router.get('/path', handler), app.post(...))."""
+    path: str
+    method: str  # 'get' | 'post' | 'put' | 'delete' | 'patch' | 'use'
+    receiver: Optional[str] = None  # e.g. 'router', 'app'
+    startLine: int
+    endLine: int
+
+
+class DefaultExportDefinition(BaseModel):
+    """Default export statement (export default ...)."""
+    startLine: int
+    endLine: int
+
+
 class Dependency(BaseModel):
     """Dependency between files"""
     from_path: str  # file path
@@ -104,6 +128,9 @@ class ParsedFile(BaseModel):
     language: str
     functions: List[FunctionDefinition] = []
     classes: List[ClassDefinition] = []
+    constants: List[ConstantDefinition] = []
+    routes: List[RouteDefinition] = []
+    default_exports: List[DefaultExportDefinition] = []
     imports: List[ImportStatement] = []
     exports: List[ExportStatement] = []
 

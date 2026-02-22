@@ -107,18 +107,13 @@ class CodeChunker:
                 )
                 chunks.append(chunk)
             
-            # Chunk each class
+            # Chunk each class (and each method as its own chunk)
             for cls in parsed_file.classes:
                 chunk_id = f"{parsed_file.path}:{cls.name}"
-                
-                # Get class code
                 class_code = self._extract_function_code(
                     lines, cls.startLine, cls.endLine
                 )
-                
-                # Get methods
                 method_names = [m.name for m in cls.methods]
-                
                 chunk = CodeChunk(
                     id=chunk_id,
                     type=ChunkType.CLASS,
@@ -132,13 +127,152 @@ class CodeChunker:
                         subsystem=self._get_subsystem(parsed_file.path),
                         imports=[imp.source for imp in parsed_file.imports],
                         exports=[exp.name for exp in parsed_file.exports if exp.name == cls.name],
-                        calls=method_names,  # Methods are like "calls"
+                        calls=method_names,
                         dependencies=self._get_file_dependencies(parsed_file.path, structure.dependencies),
                         line_count=cls.endLine - cls.startLine + 1
                     ),
                     related_chunks=[]
                 )
                 chunks.append(chunk)
+                # One chunk per class method
+                for method in cls.methods:
+                    method_id = f"{parsed_file.path}:{cls.name}.{method.name}"
+                    method_code = self._extract_function_code(
+                        lines, method.startLine, method.endLine
+                    )
+                    chunks.append(CodeChunk(
+                        id=method_id,
+                        type=ChunkType.METHOD,
+                        content=method_code,
+                        metadata=ChunkMetadata(
+                            file_path=parsed_file.path,
+                            language=parsed_file.language,
+                            start_line=method.startLine,
+                            end_line=method.endLine,
+                            function_name=method.name,
+                            class_name=cls.name,
+                            method_name=method.name,
+                            subsystem=self._get_subsystem(parsed_file.path),
+                            imports=[imp.source for imp in parsed_file.imports],
+                            exports=[],
+                            calls=[],
+                            called_by=[],
+                            dependencies=self._get_file_dependencies(parsed_file.path, structure.dependencies),
+                            line_count=method.endLine - method.startLine + 1
+                        ),
+                        related_chunks=[]
+                    ))
+            
+            # Chunk each top-level constant (object/array)
+            for const in getattr(parsed_file, 'constants', []):
+                chunk_id = f"{parsed_file.path}:{const.name}"
+                const_code = self._extract_function_code(
+                    lines, const.startLine, const.endLine
+                )
+                chunks.append(CodeChunk(
+                    id=chunk_id,
+                    type=ChunkType.CONSTANT,
+                    content=const_code,
+                    metadata=ChunkMetadata(
+                        file_path=parsed_file.path,
+                        language=parsed_file.language,
+                        start_line=const.startLine,
+                        end_line=const.endLine,
+                        function_name=const.name,
+                        subsystem=self._get_subsystem(parsed_file.path),
+                        imports=[imp.source for imp in parsed_file.imports],
+                        exports=[const.name] if const.isExported else [],
+                        calls=[],
+                        called_by=[],
+                        dependencies=[],
+                        line_count=const.endLine - const.startLine + 1
+                    ),
+                    related_chunks=[]
+                ))
+
+            # Chunk each route (router.get, app.post, etc.)
+            for i, route in enumerate(getattr(parsed_file, 'routes', [])):
+                chunk_id = f"{parsed_file.path}:route:{route.method}:{i}"
+                route_code = self._extract_function_code(
+                    lines, route.startLine, route.endLine
+                )
+                chunks.append(CodeChunk(
+                    id=chunk_id,
+                    type=ChunkType.ROUTE,
+                    content=route_code,
+                    metadata=ChunkMetadata(
+                        file_path=parsed_file.path,
+                        language=parsed_file.language,
+                        start_line=route.startLine,
+                        end_line=route.endLine,
+                        function_name=f"{route.method} {route.path}",
+                        subsystem=self._get_subsystem(parsed_file.path),
+                        imports=[imp.source for imp in parsed_file.imports],
+                        exports=[],
+                        calls=[],
+                        called_by=[],
+                        dependencies=[],
+                        line_count=route.endLine - route.startLine + 1
+                    ),
+                    related_chunks=[]
+                ))
+
+            # Chunk each default export (export default ...)
+            for i, default_exp in enumerate(getattr(parsed_file, 'default_exports', [])):
+                chunk_id = f"{parsed_file.path}:default_export:{i}"
+                default_code = self._extract_function_code(
+                    lines, default_exp.startLine, default_exp.endLine
+                )
+                chunks.append(CodeChunk(
+                    id=chunk_id,
+                    type=ChunkType.DEFAULT_EXPORT,
+                    content=default_code,
+                    metadata=ChunkMetadata(
+                        file_path=parsed_file.path,
+                        language=parsed_file.language,
+                        start_line=default_exp.startLine,
+                        end_line=default_exp.endLine,
+                        subsystem=self._get_subsystem(parsed_file.path),
+                        imports=[imp.source for imp in parsed_file.imports],
+                        exports=[],
+                        calls=[],
+                        called_by=[],
+                        dependencies=[],
+                        line_count=default_exp.endLine - default_exp.startLine + 1
+                    ),
+                    related_chunks=[]
+                ))
+
+            # File-level fallback: if this file contributed no other chunks, capture entire file
+            file_chunk_count = (
+                len(parsed_file.functions)
+                + len(parsed_file.classes)
+                + sum(len(c.methods) for c in parsed_file.classes)
+                + len(getattr(parsed_file, 'constants', []))
+                + len(getattr(parsed_file, 'routes', []))
+                + len(getattr(parsed_file, 'default_exports', []))
+            )
+            if file_chunk_count == 0 and file_content:
+                chunk_id = f"{parsed_file.path}:file"
+                chunks.append(CodeChunk(
+                    id=chunk_id,
+                    type=ChunkType.FILE,
+                    content=file_content,
+                    metadata=ChunkMetadata(
+                        file_path=parsed_file.path,
+                        language=parsed_file.language,
+                        start_line=1,
+                        end_line=len(lines),
+                        subsystem=self._get_subsystem(parsed_file.path),
+                        imports=[imp.source for imp in parsed_file.imports],
+                        exports=[exp.name for exp in parsed_file.exports],
+                        calls=[],
+                        called_by=[],
+                        dependencies=self._get_file_dependencies(parsed_file.path, structure.dependencies),
+                        line_count=len(lines)
+                    ),
+                    related_chunks=[]
+                ))
         
         return chunks
     

@@ -31,7 +31,7 @@ async def index_repo_job(
     ARQ job: run the RAG index pipeline for a repository.
     All arguments (except ctx) must be JSON-serializable.
     """
-    print(f"[Worker] Starting index job: {repo_full_name} @ {branch}")
+    print(f"[Worker] Starting index job: repo_full_name={repo_full_name} branch={branch} repository_id={repository_id}", flush=True)
     result = await run_index_pipeline(
         github_token=github_token,
         repo_full_name=repo_full_name,
@@ -43,23 +43,49 @@ async def index_repo_job(
         repository_id=repository_id,
         repository_name=repository_name,
     )
-    print(f"[Worker] Index job finished: success={result.get('success')}")
+    print(f"[Worker] Index job finished: repo_full_name={repo_full_name} repository_id={repository_id} success={result.get('success')}", flush=True)
     return result
 
 
 async def startup(ctx: Dict[str, Any]) -> None:
     """ARQ worker startup (optional)."""
-    print("[Worker] ARQ worker started.")
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    print("", flush=True)
+    print("=" * 70, flush=True)
+    print("[Worker] ARQ worker started. Listening for 'index_repo_job' jobs.", flush=True)
+    print(f"[Worker] REDIS_URL = {_mask_redis_url(redis_url)}", flush=True)
+    print("", flush=True)
+    print("  >>> If you add a repo and NOTHING appears here, the job is going to", flush=True)
+    print("      a DIFFERENT Redis (e.g. your app is calling the deployed Python API).", flush=True)
+    print("      To see jobs in THIS terminal:", flush=True)
+    print("        1. Run the Python API locally:  python run.py", flush=True)
+    print("        2. In Next.js .env set:  PYTHON_SERVICE_URL=http://localhost:8000", flush=True)
+    print("        3. Use the SAME REDIS_URL for both API and this worker (e.g. localhost).", flush=True)
+    print("=" * 70, flush=True)
+    print("", flush=True)
 
 
 async def shutdown(ctx: Dict[str, Any]) -> None:
     """ARQ worker shutdown (optional)."""
-    print("[Worker] ARQ worker shutting down.")
+    print("[Worker] ARQ worker shutting down.", flush=True)
 
 
 def get_redis_settings() -> arq.connections.RedisSettings:
     url = os.getenv("REDIS_URL", "redis://localhost:6379")
     return arq.connections.RedisSettings.from_dsn(url)
+
+
+def _mask_redis_url(url: str) -> str:
+    """Mask password in Redis URL for logging."""
+    if "@" in url and "://" in url:
+        try:
+            pre, rest = url.split("://", 1)
+            if "@" in rest:
+                _, host_part = rest.split("@", 1)
+                return f"{pre}://***@{host_part}"
+        except Exception:
+            pass
+    return url
 
 
 class WorkerSettings:

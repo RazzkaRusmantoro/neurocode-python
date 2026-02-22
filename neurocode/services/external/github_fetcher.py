@@ -1,19 +1,32 @@
 """
 GitHub repository file fetcher service
 """
+import os
 import httpx
 import asyncio
 import base64
 from typing import List, Dict, Any, Optional
 
 
+def _source_priority(path: str) -> int:
+    """Lower = higher priority. Prefer src/app/lib/server over other paths."""
+    path_lower = path.lower()
+    if path_lower.startswith("src/"):
+        return 0
+    if path_lower.startswith("app/") or path_lower.startswith("lib/") or path_lower.startswith("server/"):
+        return 1
+    if "/src/" in path_lower or "/lib/" in path_lower:
+        return 2
+    return 3
+
+
 class GitHubFetcher:
     """Fetches files from GitHub repositories"""
     
     def __init__(self):
-        self.max_files = 50  # Limit to prevent overwhelming the system
+        self.max_files = int(os.getenv("INDEX_MAX_FILES", "500"))  # Max source files to fetch per repo
         self.supported_languages = [
-            'typescript', 'javascript', 'python', 'java', 'go', 
+            'typescript', 'javascript', 'python', 'java', 'go',
             'rust', 'cpp', 'c', 'tsx', 'jsx'
         ]
     
@@ -151,7 +164,12 @@ class GitHubFetcher:
                     if file_name.endswith((".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".go", ".rs", ".cpp", ".c")):
                         filtered.append(item)
                 
-                return filtered[:self.max_files]  # Limit to max_files
+                # Prefer source-like paths (src/, app/, lib/, server/) so we index important code first
+                filtered.sort(key=lambda item: (_source_priority(item.get("path", "")), item.get("path", "")))
+                limited = filtered[:self.max_files]
+                if len(filtered) > self.max_files:
+                    print(f"[GitHubFetcher] Capping at {self.max_files} files (repo has {len(filtered)} source files). Set INDEX_MAX_FILES to index more.", flush=True)
+                return limited
         
         except Exception as e:
             print(f"Error getting tree: {e}")
@@ -184,7 +202,7 @@ class GitHubFetcher:
             if isinstance(result, dict) and result.get("content"):
                 files.append(result)
                 if len(files) % 10 == 0:
-                    print(f"Fetched {len(files)} files so far...")
+                    print(f"Fetched {len(files)} files so far...", flush=True)
     
     async def _fetch_blob_content(
         self,

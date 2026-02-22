@@ -13,7 +13,10 @@ from neurocode.services.analysis.parser.language_support import (
 from neurocode.services.analysis.parser.symbol_extractor import (
     extract_functions,
     extract_classes,
+    extract_constants,
     extract_exports,
+    extract_routes,
+    extract_default_exports,
 )
 from neurocode.services.analysis.parser.dependency_extractor import (
     extract_imports,
@@ -137,7 +140,10 @@ class TreeSitterParser:
             # Extract symbols
             functions = extract_functions(root_node, detected_lang, source_code)
             classes = extract_classes(root_node, detected_lang, source_code)
+            constants = extract_constants(root_node, detected_lang, source_code)
             exports = extract_exports(root_node, detected_lang, source_code)
+            routes = extract_routes(root_node, detected_lang, source_code)
+            default_exports = extract_default_exports(root_node, detected_lang, source_code)
             
             # Extract dependencies
             imports, dependencies = extract_imports(root_node, detected_lang, path, source_code)
@@ -151,6 +157,9 @@ class TreeSitterParser:
                 language=detected_lang,
                 functions=functions,
                 classes=classes,
+                constants=constants,
+                routes=routes,
+                default_exports=default_exports,
                 imports=imports,
                 exports=exports,
             )
@@ -161,7 +170,8 @@ class TreeSitterParser:
             
             print(
                 f'[TreeSitterParser] ✓ Parsed {path}: {len(functions)} functions, '
-                f'{len(classes)} classes, {len(imports)} imports'
+                f'{len(classes)} classes, {len(constants)} constants, {len(routes)} routes, '
+                f'{len(default_exports)} default exports, {len(imports)} imports'
             )
             
             return parsed_file
