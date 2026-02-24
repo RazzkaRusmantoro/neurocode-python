@@ -9,6 +9,7 @@ from neurocode.config import (
     code_analyzer,
     storage_service,
     vectorizer,
+    llm_service,
 )
 
 
@@ -25,6 +26,21 @@ def _sanitize_name(name: str) -> str:
     sanitized = "".join(c if c.isalnum() or c == "_" else "_" for c in sanitized)
     sanitized = "_".join(filter(None, sanitized.split("_")))
     return sanitized.lower()
+
+
+def build_collection_name(
+    organization_name: Optional[str],
+    organization_short_id: Optional[str],
+    repository_name: Optional[str],
+    branch: str,
+) -> str:
+    """Build Qdrant collection name from org/repo/branch. Same logic used by run_index_pipeline."""
+    if not organization_short_id or not repository_name:
+        raise ValueError("organization_short_id and repository_name are required for collection naming")
+    org_name_safe = _sanitize_name(organization_name or organization_short_id)
+    org_slug_safe = _sanitize_name(organization_short_id)
+    repo_name_safe = _sanitize_name(repository_name)
+    return f"{org_name_safe}_{org_slug_safe}_{repo_name_safe}_{branch}"
 
 
 async def run_index_pipeline(
@@ -113,6 +129,16 @@ async def run_index_pipeline(
             symbols = by_file[fp]
             _log(f"  {fp}: {len(symbols)} chunks ({', '.join(symbols[:5])}{'...' if len(symbols) > 5 else ''})")
 
+    # Enrich chunks with summary + keywords for retrieval (if LLM available)
+    if chunks_list and llm_service:
+        _log("")
+        _log("[Step 3b/5] Enriching chunks with summary and keywords (Claude)...")
+        try:
+            llm_service.enrich_chunks_for_retrieval(chunks_list, batch_size=8, max_content_chars=450)
+            _log(f"✓ Enriched {len(chunks_list)} chunks")
+        except Exception as e:
+            _log(f"⚠ Enrichment failed: {e} (continuing without summary/keywords)")
+
     # Step 4: Save locally
     _log("")
     _log("[Step 4/5] Saving results to local storage...")
@@ -124,15 +150,9 @@ async def run_index_pipeline(
     _log(f"✓ Results saved to: {saved_paths.get('directory', 'N/A')}")
 
     # Step 5: Build collection name and vectorize
-    if not organization_short_id:
-        raise ValueError("organization_short_id is required for collection naming")
-    if not repository_name:
-        raise ValueError("repository_name is required for collection naming")
-
-    org_name_safe = _sanitize_name(organization_name or organization_short_id)
-    org_slug_safe = _sanitize_name(organization_short_id)
-    repo_name_safe = _sanitize_name(repository_name)
-    collection_name = f"{org_name_safe}_{org_slug_safe}_{repo_name_safe}_{branch}"
+    collection_name = build_collection_name(
+        organization_name, organization_short_id, repository_name, branch
+    )
 
     collection_metadata: Dict[str, Any] = {
         "repo_full_name": repo_full_name,

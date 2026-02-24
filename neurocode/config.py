@@ -49,7 +49,8 @@ tree_builder = None
 qdrant_url = os.getenv("QDRANT_URL") or None
 qdrant_api_key = os.getenv("QDRANT_API_KEY") or None
 qdrant_local_path = os.getenv("QDRANT_LOCAL_PATH", "data/vector_db")
-embedding_model = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+# Default: embeddinggemma-300m (768 dims). Override with EMBEDDING_MODEL in .env
+embedding_model = os.getenv("EMBEDDING_MODEL", "google/embeddinggemma-300m")
 
 vectorizer = Vectorizer(
     model_name=embedding_model,

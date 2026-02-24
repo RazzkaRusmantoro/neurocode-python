@@ -14,7 +14,7 @@ class Vectorizer:
     
     def __init__(
         self,
-        model_name: str = "all-MiniLM-L6-v2",
+        model_name: str = "google/embeddinggemma-300m",
         qdrant_url: Optional[str] = None,
         qdrant_api_key: Optional[str] = None,
         persist_directory: str = "data/vector_db"
@@ -23,7 +23,7 @@ class Vectorizer:
         Initialize vectorizer
         
         Args:
-            model_name: Sentence transformer model name
+            model_name: Sentence transformer model name (default: google/embeddinggemma-300m, 768 dims)
             qdrant_url: Qdrant server URL (None for local)
             qdrant_api_key: Qdrant API key (for cloud)
             persist_directory: Directory for local Qdrant persistence
@@ -108,7 +108,7 @@ class Vectorizer:
         
         # Ensure collection exists with metadata (if provided)
         if metadata:
-            embedding_dimension = len(embeddings[0]) if embeddings else 384
+            embedding_dimension = len(embeddings[0]) if embeddings else self.embedding_service.get_dimension()
             self.vector_db.get_or_create_collection(collection_name, embedding_dimension, metadata=metadata)
         
         # Store in vector DB
@@ -158,6 +158,11 @@ class Vectorizer:
         if metadata.get("dependencies"):
             deps = metadata['dependencies'][:5]  # Limit to first 5
             context_parts.append(f"Dependencies: {', '.join(deps)}")
+        if metadata.get("summary"):
+            context_parts.append(metadata["summary"])
+        if metadata.get("keywords"):
+            kws = metadata["keywords"]
+            context_parts.append("Keywords: " + (", ".join(kws) if isinstance(kws, list) else str(kws)))
         
         context = " | ".join(context_parts)
         

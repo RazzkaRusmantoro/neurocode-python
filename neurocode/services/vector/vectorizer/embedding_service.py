@@ -9,15 +9,15 @@ import numpy as np
 class EmbeddingService:
     """Service for generating embeddings using sentence-transformers"""
     
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, model_name: str = "google/embeddinggemma-300m"):
         """
         Initialize embedding service
         
         Args:
             model_name: Model name (HuggingFace or sentence-transformers). Examples:
-                - "all-MiniLM-L6-v2" (default): Fast, 384 dims, general text
-                - "all-mpnet-base-v2": Better quality, 768 dims, slower
-                - "microsoft/codebert-base": Code-specific, 768 dims (set EMBEDDING_MODEL in .env)
+                - "google/embeddinggemma-300m" (default): 768 dims, SOTA for size
+                - "Qwen/Qwen3-Embedding-0.6B": 1024 dims
+                - "nomic-ai/nomic-embed-code": Code-specific, 768 dims (set EMBEDDING_MODEL in .env)
         """
         print(f"[EmbeddingService] Loading model: {model_name}...")
         self.model = SentenceTransformer(model_name)

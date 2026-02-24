@@ -708,3 +708,59 @@ Do not include any other text, just the JSON object."""
                 else:
                     descriptions[ref['name']] = "A method that performs operations on the class instance."
             return descriptions
+
+    def enrich_chunks_for_retrieval(
+        self,
+        chunks: List[Dict[str, Any]],
+        batch_size: int = 8,
+        max_content_chars: int = 450,
+    ) -> None:
+        """
+        Add one-sentence summary and retrieval keywords to each chunk's metadata.
+        Uses Claude in batches to minimize tokens. Mutates chunks in place.
+        """
+        if not chunks:
+            return
+        for b in range(0, len(chunks), batch_size):
+            batch = chunks[b : b + batch_size]
+            parts = []
+            for i, c in enumerate(batch, 1):
+                content = (c.get("content") or "")[:max_content_chars]
+                meta = c.get("metadata") or {}
+                fn = meta.get("function_name") or meta.get("class_name") or ""
+                parts.append(f"{i}: {fn}\n{content}")
+            user_msg = "\n\n".join(parts)
+            sys_msg = 'Output only a JSON array. Each item: {"s":"one sentence summary","k":["kw1","kw2","kw3"]}. No other text. Same number of items as chunks.'
+            try:
+                resp = self.client.messages.create(
+                    model=self.model_fast,
+                    max_tokens=500,
+                    system=sys_msg,
+                    messages=[{"role": "user", "content": user_msg}],
+                )
+                text = (resp.content[0].text.strip() if resp.content else "") or "[]"
+            except Exception as e:
+                print(f"[LLMService] Enrich batch failed: {e}", flush=True)
+                for c in batch:
+                    c.setdefault("metadata", {})["summary"] = ""
+                    c["metadata"]["keywords"] = []
+                continue
+            raw = text.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[-1].replace("```", "").strip()
+            try:
+                arr = json.loads(raw)
+            except json.JSONDecodeError:
+                try:
+                    arr = json.loads(re.search(r"\[.*\]", raw, re.DOTALL).group(0))
+                except (AttributeError, json.JSONDecodeError):
+                    arr = []
+            for i, c in enumerate(batch):
+                meta = c.setdefault("metadata", {})
+                if i < len(arr) and isinstance(arr[i], dict):
+                    meta["summary"] = (arr[i].get("s") or "").strip()[:500]
+                    k = arr[i].get("k")
+                    meta["keywords"] = k if isinstance(k, list) else ([k] if k else [])
+                else:
+                    meta["summary"] = ""
+                    meta["keywords"] = []

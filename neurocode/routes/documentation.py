@@ -14,14 +14,13 @@ from neurocode.models.schemas import (
 )
 from neurocode.config import (
     github_fetcher,
-    code_analyzer,
     storage_service,
     vectorizer,
     llm_service,
     s3_service,
     mongodb_service
 )
-from neurocode.services.index_pipeline import run_index_pipeline
+from neurocode.services.index_pipeline import run_index_pipeline, build_collection_name
 
 router = APIRouter()
 
@@ -109,124 +108,86 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
                 detail="LLM service not available. Please set ANTHROPIC_API_KEY environment variable."
             )
 
-        # Use repo default branch when none specified or main/master placeholder
-        branch = request.branch or "main"
-        if not branch.strip() or branch.strip().lower() in ("main", "master"):
-            resolved = await github_fetcher.get_default_branch(request.repo_full_name, request.github_token)
-            if resolved:
-                branch = resolved
-                print(f"[generate-docs-rag] Using repo default branch: {branch}")
-        
         print("\n" + "="*60)
         print("RAG DOCUMENTATION GENERATION (FULL PIPELINE)")
         print("="*60)
         print(f"Repository: {request.repo_full_name}")
-        print(f"Branch: {branch}")
+        print(f"Branch: {request.branch or 'main'}")
         print(f"Prompt: {request.prompt}")
         print("="*60)
-        
-        # Step 1: Fetch repository files (same as generate-documentation)
-        print("\n[Step 1/10] Fetching files from GitHub...")
-        files = await github_fetcher.fetch_repository_files(
-            repo_full_name=request.repo_full_name,
-            access_token=request.github_token,
-            branch=branch,
-            path="",
+
+        if not request.organization_short_id or not request.repository_name:
+            raise HTTPException(
+                status_code=400,
+                detail="organization_short_id and repository_name are required for collection naming",
+            )
+
+        # Resolve branch (same as index pipeline) so collection name matches
+        branch = request.branch or "main"
+        if not branch.strip() or branch.strip().lower() in ("main", "master"):
+            resolved = await github_fetcher.get_default_branch(
+                request.repo_full_name, request.github_token
+            )
+            if resolved:
+                branch = resolved
+                print(f"[generate-docs-rag] Using repo default branch: {branch}")
+
+        collection_name = build_collection_name(
+            request.organization_name,
+            request.organization_short_id,
+            request.repository_name,
+            branch,
         )
-        print(f"✓ Fetched {len(files)} files")
-        
-        if len(files) == 0:
-            return {
-                "success": False,
-                "message": "No files found in repository",
-                "repository": request.repo_full_name,
+        existing_count = vectorizer.vector_db.get_collection_count(collection_name)
+
+        if existing_count > 0:
+            # Collection already exists: skip index pipeline, use existing vectors
+            print(f"\n[Skip] Collection '{collection_name}' exists ({existing_count} chunks). Retrieving only.")
+            result = {
+                "success": True,
                 "branch": branch,
+                "metadata": {
+                    "totalChunks": existing_count,
+                    "totalFiles": 0,
+                    "totalFunctions": 0,
+                    "totalClasses": 0,
+                    "languages": [],
+                    "parseErrors": 0,
+                },
+                "vectorization": {
+                    "success": True,
+                    "collection_name": collection_name,
+                },
             }
-        
-        # Step 2 & 3: Parse and chunk code (same as generate-documentation)
-        print("\n[Step 2/10] Parsing code structure...")
-        print("[Step 3/10] Creating semantic chunks...")
-        
-        # Prepare files for analyzer
-        files_for_analysis = [
-            {
-                "path": file["path"],
-                "content": file["content"],
-                "language": file.get("language")
-            }
-            for file in files
-        ]
-        
-        # Analyze and chunk
-        analysis_results = await code_analyzer.analyze_and_chunk(
-            files_for_analysis,
-            chunking_strategy="hybrid"  # Use hybrid strategy for best results
-        )
-        
-        print(f"✓ Parsed {analysis_results['metadata']['totalFunctions']} functions")
-        print(f"✓ Created {analysis_results['metadata']['totalChunks']} chunks")
-        
-        # Step 4: Save results locally (same as generate-documentation)
-        print("\n[Step 4/10] Saving results to local storage...")
-        saved_paths = storage_service.save_analysis_results(
-            repo_full_name=request.repo_full_name,
-            branch=branch,
-            results=analysis_results
-        )
-        print(f"✓ Results saved to: {saved_paths['directory']}")
-        
-        # Step 5: Vectorize chunks (same as generate-documentation)
-        print("\n[Step 5/10] Vectorizing chunks...")
-        # Build collection name using NeuroCode platform org and repo names
-        def sanitize_name(name: str) -> str:
-            if not name:
-                return ""
-            sanitized = name.replace(' ', '_').replace('/', '_').replace('.', '_').replace('-', '_')
-            sanitized = ''.join(c if c.isalnum() or c == '_' else '_' for c in sanitized)
-            sanitized = '_'.join(filter(None, sanitized.split('_')))
-            return sanitized.lower()
-        
-        # Build collection name
-        if not request.organization_short_id:
-            raise HTTPException(
-                status_code=400,
-                detail="organization_short_id is required for collection naming"
-            )
-        if not request.repository_name:
-            raise HTTPException(
-                status_code=400,
-                detail="repository_name is required for collection naming"
-            )
-        
-        org_name_safe = sanitize_name(request.organization_name or request.organization_short_id)
-        org_slug_safe = sanitize_name(request.organization_short_id)
-        repo_name_safe = sanitize_name(request.repository_name)
-        collection_name = f"{org_name_safe}_{org_slug_safe}_{repo_name_safe}_{branch}"
-        
-        # Prepare metadata to link collection to org and repo
-        collection_metadata = {}
-        if request.organization_id:
-            collection_metadata["organization_id"] = request.organization_id
-        if request.organization_short_id:
-            collection_metadata["organization_short_id"] = request.organization_short_id
-        if request.repository_id:
-            collection_metadata["repository_id"] = request.repository_id
-        collection_metadata["repo_full_name"] = request.repo_full_name
-        collection_metadata["branch"] = branch
-        
-        # Vectorize chunks (will create collection if doesn't exist, or update if exists)
-        vectorization_result = vectorizer.vectorize_chunks_from_file(
-            chunks_file_path=saved_paths["files"]["chunks"],
-            collection_name=collection_name,
-            metadata=collection_metadata
-        )
-        
-        if vectorization_result.get("success"):
-            print(f"✓ Vectorized {vectorization_result['chunks_vectorized']} chunks")
-            print(f"✓ Collection: {vectorization_result['collection_name']}")
         else:
-            print(f"⚠ Vectorization had issues: {vectorization_result.get('message')}")
-        
+            # Steps 1–5: Run full index pipeline (fetch → parse → chunk → enrich → save → vectorize)
+            result = await run_index_pipeline(
+                github_token=request.github_token,
+                repo_full_name=request.repo_full_name,
+                branch=request.branch or "main",
+                target=None,
+                organization_id=request.organization_id,
+                organization_short_id=request.organization_short_id,
+                organization_name=request.organization_name,
+                repository_id=request.repository_id,
+                repository_name=request.repository_name,
+            )
+            if not result.get("success"):
+                raise HTTPException(
+                    status_code=400 if "required" in str(result.get("message", "")).lower() else 500,
+                    detail=result.get("message", "Index pipeline failed"),
+                )
+            vectorization = result.get("vectorization")
+            if not vectorization or not vectorization.get("success"):
+                raise HTTPException(
+                    status_code=500,
+                    detail="Index pipeline completed but vectorization failed.",
+                )
+            collection_name = vectorization["collection_name"]
+            branch = result.get("branch", request.branch or "main")
+
+        index_metadata = result.get("metadata", {})
+
         # Step 6: Search vector DB for relevant chunks based on prompt
         print(f"\n[Step 6/10] Searching vector DB for relevant chunks...")
         print(f"Query: {request.prompt}")
@@ -891,7 +852,7 @@ Description:"""
             "branch": branch,
             "collection_name": collection_name,
             "chunks_used": len(search_results),
-            "metadata": analysis_results["metadata"],
+            "metadata": index_metadata,
             "saved_paths": doc_saved_paths,
             "chunks": doc_metadata["chunks"],
             "code_reference_ids": code_reference_ids

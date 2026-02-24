@@ -154,6 +154,8 @@ class VectorDBService:
                     "subsystem": chunk["metadata"].get("subsystem") or "",
                     "start_line": chunk["metadata"].get("start_line", 0),
                     "end_line": chunk["metadata"].get("end_line", 0),
+                    "summary": chunk["metadata"].get("summary") or "",
+                    "keywords": ", ".join(chunk["metadata"]["keywords"]) if isinstance(chunk["metadata"].get("keywords"), list) else (chunk["metadata"].get("keywords") or ""),
                 }
             )
             points.append(point)
@@ -226,6 +228,8 @@ class VectorDBService:
                     "subsystem": result.payload.get("subsystem", ""),
                     "start_line": result.payload.get("start_line", 0),
                     "end_line": result.payload.get("end_line", 0),
+                    "summary": result.payload.get("summary", ""),
+                    "keywords": result.payload.get("keywords", ""),
                 },
                 "score": result.score  # Qdrant returns similarity score directly
             })
