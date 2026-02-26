@@ -165,6 +165,8 @@ Your documentation should:
 - Include detailed explanations of important conditional logic, control flow, and algorithmic decisions
 - Reference specific code elements (function names, class names, parameters, return types) from the provided code
 - Use proper code formatting with backticks for function names, class names, variables
+- **Use Markdown tables whenever it helps**: For parameters, options, return values, configuration keys, comparisons, or any structured data—use tables to reduce wall-of-text and improve scannability. Example: parameter lists, API options, key-value configs.
+- **Use fenced code blocks (triple backticks) liberally in descriptions**: Include short code examples, API usage snippets, config examples, and small code samples wherever they clarify the explanation. Prefer showing real code over long prose when it aids understanding. Use ```language for syntax highlighting when relevant.
 - Include code examples showing how functions/methods are used
 - Explain the "why" behind important if statements, loops, and design decisions
 - Structure like API reference documentation with clear sections for classes, methods, parameters
@@ -187,9 +189,11 @@ Your documentation should:
    - Each section has: id, title, description, code_references (array of IDs), and optional subsections (but remember: subsections MUST exist somewhere in the documentation)
    - The description field must be DETAILED and THOROUGH, similar to scikit-learn documentation style:
      * Explain concepts, algorithms, and processes in clear English
+     * **TABLES**: Use Markdown tables whenever you have structured data so the doc feels less overwhelming and is easier to scan. Use tables for: parameter lists (name, type, description), options/flags, return value fields, configuration keys, comparisons (e.g. "Option A vs Option B"), or any repeated key-value or columnar information. Example: | Parameter | Type | Description | then rows.
+     * **CODE SNIPPETS**: Use fenced code blocks (``` ... ```) often in descriptions. Include short code examples, usage snippets, config samples, and inline code to explain behavior. Prefer showing real code over long prose when it helps. Use ```python, ```javascript, etc. when the language is known. More code snippets = clearer, less overwhelming docs.
      * **FORMATTING GUIDELINES**: 
        - Use paragraph breaks (`\n\n`) to separate different ideas or topics. Each paragraph should focus on one main concept.
-       - Write in a natural, flowing documentation style - use a mix of paragraphs and lists as appropriate
+       - Write in a natural, flowing documentation style - use a mix of paragraphs, lists, tables, and code blocks as appropriate
        - **Use bullet points (`- ` or `* `) when appropriate** for:
          * Lists of distinct items, features, or components (especially when each item has details)
          * When breaking information into a list improves clarity and scannability

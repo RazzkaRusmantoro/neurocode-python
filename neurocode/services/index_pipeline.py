@@ -130,6 +130,7 @@ async def run_index_pipeline(
             _log(f"  {fp}: {len(symbols)} chunks ({', '.join(symbols[:5])}{'...' if len(symbols) > 5 else ''})")
 
     # Enrich chunks with summary + keywords for retrieval (if LLM available)
+    # TEMP: comment out the block below to disable Claude summary/keywords per chunk
     if chunks_list and llm_service:
         _log("")
         _log("[Step 3b/5] Enriching chunks with summary and keywords (Claude)...")
