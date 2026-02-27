@@ -100,3 +100,11 @@ class ChatRequest(BaseModel):
     message: str
     history: Optional[List[ChatMessage]] = []
     org_context: Optional[OrgContext] = None
+
+
+class HotZonesRecommendAreasRequest(BaseModel):
+    """Request model to recommend relevant code areas for a task query."""
+    org_short_id: str
+    query: str
+    repo_url_names: Optional[List[str]] = None  # optional scope to specific repos (urlName slugs)
+    top_n: Optional[int] = 10
