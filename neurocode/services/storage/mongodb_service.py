@@ -447,6 +447,105 @@ class MongoDBService:
             "message": "Similarity search not yet implemented"
         }
     
+    def insert_uml_diagram(
+        self,
+        organization_id: str,
+        repository_id: str,
+        diagram_type: str,
+        name: str,
+        slug: str,
+        prompt: str,
+        diagram_data: Dict[str, Any],
+        s3_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Insert a new UML diagram into uml_diagrams collection.
+
+        Args:
+            organization_id: Organization ID (MongoDB ObjectId string)
+            repository_id: Repository ID (MongoDB ObjectId string)
+            diagram_type: Type of diagram (e.g. "class")
+            name: Display name (e.g. "class-auth-module")
+            slug: URL-safe slug, unique per repo (e.g. "class-auth-module")
+            prompt: User prompt used to generate the diagram
+            diagram_data: Full diagram JSON (classes, relationships, etc.)
+            s3_key: Optional S3 key for backup
+
+        Returns:
+            Dictionary with success status and diagram _id
+        """
+        try:
+            try:
+                org_obj_id = ObjectId(organization_id)
+                repo_obj_id = ObjectId(repository_id)
+            except (InvalidId, TypeError) as e:
+                return {"success": False, "error": f"Invalid ObjectId format: {str(e)}"}
+
+            now = datetime.utcnow()
+            document = {
+                "organizationId": org_obj_id,
+                "repositoryId": repo_obj_id,
+                "type": diagram_type,
+                "name": name,
+                "slug": slug,
+                "prompt": prompt,
+                "diagramData": diagram_data,
+                "updatedAt": now,
+                "createdAt": now,
+            }
+            if s3_key:
+                document["s3Key"] = s3_key
+
+            result = self.db.uml_diagrams.insert_one(document)
+            return {
+                "success": True,
+                "diagram_id": str(result.inserted_id),
+                "slug": slug,
+                "name": name,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_uml_diagram_by_id(self, diagram_id: str) -> Dict[str, Any]:
+        """Get a single UML diagram by its _id."""
+        try:
+            obj_id = ObjectId(diagram_id)
+        except (InvalidId, TypeError):
+            return {"success": False, "error": "Invalid diagram id"}
+        doc = self.db.uml_diagrams.find_one({"_id": obj_id})
+        if not doc:
+            return {"success": False, "error": "Diagram not found"}
+        doc["_id"] = str(doc["_id"])
+        doc["organizationId"] = str(doc["organizationId"])
+        doc["repositoryId"] = str(doc["repositoryId"])
+        return {"success": True, "diagram": doc}
+
+    def get_uml_diagram_by_slug(
+        self,
+        organization_id: str,
+        repository_id: str,
+        slug: str,
+    ) -> Dict[str, Any]:
+        """Get a single UML diagram by organization, repository, and slug."""
+        try:
+            org_obj_id = ObjectId(organization_id)
+            repo_obj_id = ObjectId(repository_id)
+        except (InvalidId, TypeError):
+            return {"success": False, "error": "Invalid organization or repository id"}
+        doc = self.db.uml_diagrams.find_one(
+            {
+                "organizationId": org_obj_id,
+                "repositoryId": repo_obj_id,
+                "slug": slug,
+            }
+        )
+        if not doc:
+            return {"success": False, "error": "Diagram not found"}
+        doc["_id"] = str(doc["_id"])
+        doc["organizationId"] = str(doc["organizationId"])
+        doc["repositoryId"] = str(doc["repositoryId"])
+        return {"success": True, "diagram": doc}
+
     def close(self):
         """Close MongoDB connection"""
         if self.client:

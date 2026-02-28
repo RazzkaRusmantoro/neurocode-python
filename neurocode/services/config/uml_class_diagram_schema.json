@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "required": ["classes", "relationships"],
+  "properties": {
+    "classes": {
+      "type": "array",
+      "description": "List of UML class nodes. Use clear domain-style names. Each class has a unique id.",
+      "items": {
+        "type": "object",
+        "required": ["id", "className", "attributes", "methods"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique identifier for this class. Must match source/target in relationships." },
+          "className": { "type": "string", "description": "Display name of the class" },
+          "explanation": { "type": "string", "description": "Optional one-sentence explanation of what this class represents or does. Stored, not displayed." },
+          "stereotype": { "type": "string", "description": "Optional stereotype e.g. entity, abstract, interface" },
+          "abstract": { "type": "boolean", "description": "True if abstract class" },
+          "isInterface": { "type": "boolean", "description": "True if interface" },
+          "isEnum": { "type": "boolean", "description": "True if enum" },
+          "enumValues": { "type": "array", "items": { "type": "string" }, "description": "If isEnum, list of enum value names" },
+          "attributes": {
+            "type": "array",
+            "description": "List of attributes (name, type, visibility). Include optional description for each.",
+            "items": {
+              "type": "object",
+              "required": ["name", "type", "visibility"],
+              "properties": {
+                "name": { "type": "string" },
+                "type": { "type": "string" },
+                "visibility": { "type": "string", "enum": ["+", "-", "#", "~"], "description": "+ public, - private, # protected, ~ package" },
+                "description": { "type": "string", "description": "Optional one-sentence description of the attribute. Stored, not displayed." }
+              }
+            }
+          },
+          "methods": {
+            "type": "array",
+            "description": "List of methods (name, params, returnType, visibility). Include optional description for each.",
+            "items": {
+              "type": "object",
+              "required": ["name", "params", "returnType", "visibility"],
+              "properties": {
+                "name": { "type": "string" },
+                "params": { "type": "string", "description": "Parameter list as string e.g. 'id: string' or ''" },
+                "returnType": { "type": "string" },
+                "visibility": { "type": "string", "enum": ["+", "-", "#", "~"] },
+                "description": { "type": "string", "description": "Optional one-sentence description of what the method does. Stored, not displayed." }
+              }
+            }
+          }
+        }
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "description": "Edges between classes. source and target must be class ids.",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "relationship"],
+        "properties": {
+          "source": { "type": "string", "description": "Class id (source node)" },
+          "target": { "type": "string", "description": "Class id (target node)" },
+          "relationship": { "type": "string", "enum": ["composition", "aggregation", "association", "directed_association", "generalization", "dependency"] },
+          "sourceMultiplicity": { "type": "string", "description": "e.g. 1, 0..1, 1..*, *" },
+          "targetMultiplicity": { "type": "string", "description": "e.g. 1, 0..1, 1..*, *" }
+        }
+      }
+    }
+  }
+}

@@ -10,7 +10,8 @@ from datetime import datetime
 from neurocode.models.schemas import (
     GenerateDocumentationRequest,
     GenerateDocsRAGRequest,
-    GetDocumentationRequest
+    GetDocumentationRequest,
+    GenerateUmlRequest,
 )
 from neurocode.config import (
     github_fetcher,
@@ -929,4 +930,231 @@ async def get_documentation(request: GetDocumentationRequest):
             status_code=500,
             detail=f"Failed to retrieve documentation: {str(e)}"
         )
+
+
+def _uml_slug_from_prompt(prompt: str, diagram_type: str = "class") -> str:
+    """Build a URL-safe slug from user prompt and diagram type."""
+    import re
+    raw = (prompt or "").strip()[:60]
+    slug = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-") or "diagram"
+    return f"{diagram_type}-{slug}"
+
+
+def _log_rag(msg: str) -> None:
+    """Print RAG step so logs appear immediately."""
+    print(msg, flush=True)
+
+
+@router.post("/api/generate-uml")
+async def generate_uml(request: GenerateUmlRequest):
+    """
+    Generate a UML diagram (e.g. class diagram) using RAG: vector search + LLM structured output.
+    Saves to MongoDB (uml_diagrams) and uploads JSON to S3 for backup.
+    """
+    if not llm_service:
+        raise HTTPException(
+            status_code=500,
+            detail="LLM service not available. Set ANTHROPIC_API_KEY.",
+        )
+    if not request.organization_short_id or not request.repository_name:
+        raise HTTPException(
+            status_code=400,
+            detail="organization_short_id and repository_name are required",
+        )
+
+    _log_rag("")
+    _log_rag("=" * 60)
+    _log_rag("RAG UML GENERATION (CLASS DIAGRAM)")
+    _log_rag("=" * 60)
+    _log_rag(f"Repository: {request.repo_full_name}")
+    _log_rag(f"Prompt: {request.prompt}")
+    _log_rag("=" * 60)
+
+    branch = request.branch or "main"
+    if not branch.strip() or branch.strip().lower() in ("main", "master"):
+        try:
+            resolved = await github_fetcher.get_default_branch(
+                request.repo_full_name, request.github_token
+            )
+            if resolved:
+                branch = resolved
+                _log_rag(f"[generate-uml] Using repo default branch: {branch}")
+        except Exception:
+            pass
+
+    collection_name = build_collection_name(
+        request.organization_name,
+        request.organization_short_id,
+        request.repository_name,
+        branch,
+    )
+    existing_count = vectorizer.vector_db.get_collection_count(collection_name)
+
+    if existing_count > 0:
+        _log_rag(f"\n[Skip] Collection '{collection_name}' exists ({existing_count} chunks). Retrieving only.")
+        result = {
+            "success": True,
+            "branch": branch,
+            "metadata": {"totalChunks": existing_count},
+            "vectorization": {"success": True, "collection_name": collection_name},
+        }
+    else:
+        _log_rag("\n[Step 1–5/7] Running index pipeline (fetch → parse → chunk → save → vectorize)...")
+        result = await run_index_pipeline(
+            github_token=request.github_token,
+            repo_full_name=request.repo_full_name,
+            branch=branch,
+            target=None,
+            organization_id=request.organization_id,
+            organization_short_id=request.organization_short_id,
+            organization_name=request.organization_name,
+            repository_id=request.repository_id,
+            repository_name=request.repository_name,
+        )
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=400 if "required" in str(result.get("message", "")).lower() else 500,
+                detail=result.get("message", "Index pipeline failed"),
+            )
+        vectorization = result.get("vectorization")
+        if not vectorization or not vectorization.get("success"):
+            raise HTTPException(
+                status_code=500,
+                detail="Vectorization failed.",
+            )
+        collection_name = vectorization["collection_name"]
+        branch = result.get("branch", branch)
+        _log_rag("✓ Index pipeline complete.")
+
+    _log_rag(f"\n[Step 6/7] Searching vector DB for relevant chunks...")
+    _log_rag(f"Query: {request.prompt}")
+
+    search_results = vectorizer.search(
+        collection_name=collection_name,
+        query=request.prompt,
+        top_k=request.top_k or 20,
+    )
+    if not search_results:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No chunks found in collection '{collection_name}'",
+        )
+    _log_rag(f"✓ Found {len(search_results)} relevant chunks")
+
+    diagram_type = (request.diagram_type or "class").lower()
+    if diagram_type != "class":
+        raise HTTPException(
+            status_code=400,
+            detail="Only diagram_type 'class' is supported currently.",
+        )
+
+    _log_rag(f"\n[Step 7/7] Generating UML class diagram with Claude...")
+    uml_result = llm_service.generate_uml_class_diagram(
+        prompt=request.prompt,
+        context_chunks=search_results,
+        repo_name=request.repository_name or request.repo_full_name,
+    )
+    if uml_result.get("error"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"UML generation failed: {uml_result.get('error')}",
+        )
+
+    classes = uml_result.get("classes") or []
+    relationships = uml_result.get("relationships") or []
+    _log_rag(f"✓ Generated {len(classes)} classes, {len(relationships)} relationships")
+
+    diagram_data = {"classes": classes, "relationships": relationships}
+
+    name = _uml_slug_from_prompt(request.prompt, diagram_type)
+    slug = name
+
+    if mongodb_service and request.organization_id and request.repository_id:
+        _log_rag("\n[Save] Saving diagram to MongoDB (uml_diagrams)...")
+
+    s3_key = None
+    if s3_service and request.organization_id and request.repository_id:
+        _log_rag("\n[Backup] Uploading diagram JSON to S3...")
+        s3_key = (
+            f"organizations/{request.organization_id}/"
+            f"repositories/{request.repository_id}/uml/{branch.replace('/', '_')}/{slug}.json"
+        )
+        upload_result = s3_service.upload_documentation(
+            content=json.dumps(diagram_data),
+            s3_key=s3_key,
+            content_type="application/json",
+        )
+        if upload_result.get("success"):
+            _log_rag(f"✓ Diagram uploaded to S3: {s3_key}")
+        else:
+            _log_rag(f"⚠ S3 UML upload failed: {upload_result.get('error')}")
+
+    if not mongodb_service or not request.organization_id or not request.repository_id:
+        raise HTTPException(
+            status_code=500,
+            detail="MongoDB and organization_id/repository_id are required to save the diagram.",
+        )
+
+    insert_result = mongodb_service.insert_uml_diagram(
+        organization_id=request.organization_id,
+        repository_id=request.repository_id,
+        diagram_type=diagram_type,
+        name=name,
+        slug=slug,
+        prompt=request.prompt,
+        diagram_data=diagram_data,
+        s3_key=s3_key,
+    )
+    if not insert_result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=insert_result.get("error", "Failed to save diagram to MongoDB"),
+        )
+    _log_rag(f"✓ Diagram saved to MongoDB (slug: {slug})")
+    _log_rag("=" * 60)
+    _log_rag("")
+
+    return {
+        "success": True,
+        "diagramId": insert_result.get("diagram_id"),
+        "slug": slug,
+        "name": name,
+        "s3Key": s3_key,
+        "branch": branch,
+    }
+
+
+@router.get("/api/uml-diagram")
+async def get_uml_diagram(
+    organization_id: Optional[str] = None,
+    repository_id: Optional[str] = None,
+    slug: Optional[str] = None,
+    diagram_id: Optional[str] = None,
+):
+    """
+    Get a UML diagram by id or by organization_id + repository_id + slug.
+    """
+    if mongodb_service is None:
+        raise HTTPException(status_code=503, detail="MongoDB service not available.")
+
+    if diagram_id:
+        result = mongodb_service.get_uml_diagram_by_id(diagram_id)
+    elif organization_id and repository_id and slug:
+        result = mongodb_service.get_uml_diagram_by_slug(
+            organization_id=organization_id,
+            repository_id=repository_id,
+            slug=slug,
+        )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either diagram_id or (organization_id, repository_id, slug).",
+        )
+
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=404,
+            detail=result.get("error", "Diagram not found"),
+        )
+    return {"success": True, "diagram": result["diagram"]}
 

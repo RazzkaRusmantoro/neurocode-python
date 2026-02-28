@@ -9,6 +9,44 @@ from typing import List, Dict, Any, Optional
 from anthropic import Anthropic
 
 
+def _enforce_max_connections_per_class(
+    relationships: List[Dict[str, Any]], max_per_class: int = 3
+) -> List[Dict[str, Any]]:
+    """Drop relationships so no class has more than max_per_class connections (in + out)."""
+    if not relationships:
+        return relationships
+    rels = list(relationships)
+    while True:
+        degree: Dict[str, int] = {}
+        for r in rels:
+            if isinstance(r, dict):
+                src, tgt = r.get("source"), r.get("target")
+                if src:
+                    degree[src] = degree.get(src, 0) + 1
+                if tgt and tgt != src:
+                    degree[tgt] = degree.get(tgt, 0) + 1
+        over = [cid for cid, d in degree.items() if d > max_per_class]
+        if not over:
+            break
+        to_remove = None
+        for r in rels:
+            src, tgt = r.get("source"), r.get("target")
+            if src in over or tgt in over:
+                if r.get("relationship") == "dependency":
+                    to_remove = r
+                    break
+        if to_remove is None:
+            for r in rels:
+                src, tgt = r.get("source"), r.get("target")
+                if src in over or tgt in over:
+                    to_remove = r
+                    break
+        if to_remove is None:
+            break
+        rels.remove(to_remove)
+    return rels
+
+
 class LLMService:
     """Service for generating documentation using Claude"""
     
@@ -492,7 +530,163 @@ Your documentation should:
         except Exception as e:
             print(f"[LLMService] Error generating documentation: {e}")
             raise
-    
+
+    def generate_uml_class_diagram(
+        self,
+        prompt: str,
+        context_chunks: List[Dict[str, Any]],
+        repo_name: str = "repository",
+    ) -> Dict[str, Any]:
+        """
+        Generate a UML class diagram as structured JSON from RAG context.
+
+        Args:
+            prompt: User's description of what to include in the diagram.
+            context_chunks: Relevant code chunks from vector search.
+            repo_name: Repository name for the prompt.
+
+        Returns:
+            Dict with "classes" and "relationships" matching the frontend schema.
+            On parse/validation failure, returns {"error": str, "classes": [], "relationships": []}.
+        """
+        schema_path = Path(__file__).parent.parent / "config" / "uml_class_diagram_schema.json"
+        schema_template = ""
+        if schema_path.exists():
+            try:
+                with open(schema_path, "r", encoding="utf-8") as f:
+                    schema_template = json.dumps(json.load(f), indent=2)
+            except Exception as e:
+                print(f"[LLMService] Warning: Could not load UML schema: {e}")
+
+        context_parts = []
+        for i, chunk in enumerate(context_chunks, 1):
+            meta = chunk.get("metadata", {})
+            file_path = meta.get("file_path", "unknown")
+            class_name = meta.get("class_name", "")
+            function_name = meta.get("function_name", "")
+            language = meta.get("language", "")
+            start_line = meta.get("start_line", 0)
+            end_line = meta.get("end_line", 0)
+            content = chunk.get("content", "")
+            header = f"--- Code Chunk {i} ---\nFile: {file_path}\n"
+            if class_name:
+                header += f"Class: {class_name}\n"
+            if function_name:
+                header += f"Function/Method: {function_name}\n"
+            header += f"Language: {language}\nLines: {start_line}-{end_line}\n---\n"
+            context_parts.append(header + content + "\n")
+        context = "\n".join(context_parts)
+
+        schema_section = ""
+        if schema_template:
+            schema_section = f"""
+
+**REQUIRED JSON SCHEMA (you MUST follow this exactly):**
+```json
+{schema_template}
+```
+
+**CRITICAL:**
+- Return ONLY valid JSON. No markdown code blocks (no ```json), no explanations.
+- Every relationship "source" and "target" MUST be exactly one of the class "id" values from the classes array.
+- For association, aggregation, and composition: ALWAYS include sourceMultiplicity and targetMultiplicity (e.g. "1", "0..1", "1..*", "*"). Infer from code when possible; otherwise use sensible defaults like "1" and "*".
+- Use only the relationship types in the schema. Use only visibility + - # ~ for attributes and methods.
+- Prefer inferring real classes, attributes, and methods from the code; only add minimal placeholder content when the code does not specify."""
+
+        system_prompt = f"""You are an expert at producing clear, concise UML class diagrams from code. Use your judgment to design the best possible diagram.
+
+**Design goals:**
+- **Conceptual clarity:** Prefer domain-style class names that group related code concepts. For example, instead of listing every class (GitHubFetcher, FetchReposRequest, etc.), introduce clear conceptual nodes like "GitHub", "Visual Tree", "Vector DB", "Request", "Service"—whatever best tells the story of the code. Summarize and consolidate so the diagram is readable and purposeful.
+- **No central hub / max 3 connections per class (HARD RULE):** Do NOT create a central class that many others connect to or from (e.g. avoid one "Documentation Structure", "RAG Pipeline", or "Orchestrator" node with 4+ relationships). Every class must have at most 3 relationships total (incoming + outgoing). If the real design has a hub, split it into 2–3 smaller conceptual classes or show only the 3 most important links for that node. Prefer chains (A→B→C) and small clusters over one node with many edges.
+- **Every class must have at least one relationship:** Do not include any class that is not connected to at least one other class. Every node must appear as source or target in at least one relationship. If you list a class, it must have an association (or other relationship type) to some other class.
+- **Capture members from the code:** For each class, include as many attributes and methods as you can get specifically from the code—prioritize real members that appear in the provided context. Do not add an excessive number; keep nodes readable (e.g. avoid huge lists). If the code has many members, choose the most representative ones. If the code has few or none for a class, use guesswork to add plausible attributes and methods (e.g. "config", "fetch", "process") so each class has at least one attribute and one method and remains meaningful.
+- **Descriptions (stored, not displayed on the diagram):** For each class, include an "explanation" field: one brief sentence describing what the class represents or does in the system. For each attribute and each method, include an optional "description" field: one brief sentence (e.g. what the attribute holds, or what the method does). Infer from the code when possible; use short, clear prose. These are for documentation/tooltips later.
+
+Your task is to output a single JSON object with "classes" and "relationships" that represents your best, clearest version of the structure inferred from the provided code.{schema_section}
+
+Output ONLY the JSON object, nothing else."""
+
+        user_message = f"""Repository: {repo_name}
+
+User request for the diagram: {prompt}
+
+Code context:
+{context}
+
+Produce your best UML class diagram: clear, conceptual (e.g. GitHub, Visual Tree, Vector DB, Request, Service). CRITICAL: No central hub—do not have one class with 4 or more connections. Every class must have at most 3 relationships total. Every class must have at least one relationship—no isolated nodes; each class must appear as source or target in at least one relationship. For each class, capture as many attributes and methods as you can from the code (without making nodes too long); if the code does not specify enough, use guesswork. Also provide: (1) an "explanation" for each class; (2) a brief "description" for each attribute and each method. Ensure every relationship source and target is a class id from the classes array. Include sourceMultiplicity and targetMultiplicity for association, aggregation, and composition (e.g. "1", "0..1", "1..*", "*")."""
+
+        def extract_json_from_text(text: str) -> str:
+            cleaned = text.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:].strip()
+            elif cleaned.startswith("```"):
+                cleaned = cleaned[3:].strip()
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+            return cleaned
+
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=8192,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            response_text = ""
+            if response.content and len(response.content) > 0:
+                response_text = response.content[0].text.strip()
+            cleaned = extract_json_from_text(response_text)
+            json_match = re.search(r"\{.*", cleaned, re.DOTALL)
+            if not json_match:
+                return {"error": "No JSON object in response", "classes": [], "relationships": []}
+            json_str = json_match.group(0)
+            parsed = json.loads(json_str)
+            classes = parsed.get("classes") or []
+            relationships = parsed.get("relationships") or []
+            if not isinstance(classes, list):
+                classes = []
+            if not isinstance(relationships, list):
+                relationships = []
+
+            class_ids = {c.get("id") or c.get("className") for c in classes if isinstance(c, dict)}
+            for c in classes:
+                if isinstance(c, dict) and "id" not in c and c.get("className"):
+                    c["id"] = c["className"]
+                    class_ids.add(c["className"])
+            valid_rels = []
+            need_multiplicity = ("association", "aggregation", "composition")
+            for r in relationships:
+                if not isinstance(r, dict):
+                    continue
+                src = r.get("source")
+                tgt = r.get("target")
+                if src in class_ids and tgt in class_ids:
+                    rel_type = r.get("relationship")
+                    if rel_type in need_multiplicity:
+                        if not r.get("sourceMultiplicity"):
+                            r["sourceMultiplicity"] = "1"
+                        if not r.get("targetMultiplicity"):
+                            r["targetMultiplicity"] = "*"
+                    valid_rels.append(r)
+
+            valid_rels = _enforce_max_connections_per_class(valid_rels, max_per_class=3)
+            connected_ids = set()
+            for r in valid_rels:
+                if isinstance(r, dict):
+                    src, tgt = r.get("source"), r.get("target")
+                    if src:
+                        connected_ids.add(src)
+                    if tgt:
+                        connected_ids.add(tgt)
+            classes = [c for c in classes if isinstance(c, dict) and (c.get("id") or c.get("className")) in connected_ids]
+            return {"classes": classes, "relationships": valid_rels}
+        except json.JSONDecodeError as e:
+            print(f"[LLMService] UML diagram JSON parse error: {e}")
+            return {"error": str(e), "classes": [], "relationships": []}
+        except Exception as e:
+            print(f"[LLMService] Error generating UML class diagram: {e}")
+            return {"error": str(e), "classes": [], "relationships": []}
+
     def generate_parameter_descriptions_batch(
         self,
         parameters: List[Dict[str, Any]],

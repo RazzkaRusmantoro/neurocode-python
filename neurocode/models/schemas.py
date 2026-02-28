@@ -108,3 +108,26 @@ class HotZonesRecommendAreasRequest(BaseModel):
     query: str
     repo_url_names: Optional[List[str]] = None  # optional scope to specific repos (urlName slugs)
     top_n: Optional[int] = 10
+
+
+class GenerateUmlRequest(BaseModel):
+    """Request model for RAG-based UML diagram generation (e.g. class diagram)."""
+    github_token: str
+    repo_full_name: str
+    branch: Optional[str] = "main"
+    prompt: str
+    diagram_type: str = "class"  # only "class" supported for now
+    organization_id: Optional[str] = None
+    organization_short_id: Optional[str] = None
+    organization_name: Optional[str] = None
+    repository_id: Optional[str] = None
+    repository_name: Optional[str] = None
+    top_k: Optional[int] = 20
+
+
+class GetUmlDiagramRequest(BaseModel):
+    """Request model for retrieving a UML diagram by slug or id."""
+    organization_id: Optional[str] = None
+    repository_id: Optional[str] = None
+    slug: Optional[str] = None
+    diagram_id: Optional[str] = None
