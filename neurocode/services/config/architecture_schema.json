@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SystemArchitectureDocumentation",
+  "description": "System Architecture documentation: title, short description, and flat list of sections (Overview, custom topics, then Components, Data flow, External dependencies, Design decisions, Deployment).",
+  "type": "object",
+  "required": ["title", "description", "sections"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "MUST be specific and detailed, NOT generic. Include the topic and repository context (e.g. 'System Architecture: Database Flow and Storage Handling (neurocode-python)' or 'Authentication and API Flow — my-api-repo'). Never use a generic title like 'System Architecture' or 'Architecture Overview' alone."
+    },
+    "description": {
+      "type": "string",
+      "description": "One short sentence summarizing the doc (for metadata)."
+    },
+    "sections": {
+      "type": "array",
+      "description": "Sections in order: 1 = Overview, 2..N = custom sections from user prompt, then Components, Data flow & communication, External dependencies, Design decisions & conventions, Deployment & runtime. Each section has id, title, and full markdown description only.",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "description"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique sequential id, e.g. '1', '2', '3'."
+          },
+          "title": {
+            "type": "string",
+            "description": "Section heading (e.g. 'Overview', 'Components', 'Data Flow and Communication')."
+          },
+          "description": {
+            "type": "string",
+            "description": "Full markdown content for this section only. No subheadings (###). Use paragraphs, bullets or tables only where they add clarity. Escape newlines as \\n."
+          }
+        }
+      }
+    }
+  }
+}

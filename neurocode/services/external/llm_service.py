@@ -561,15 +561,27 @@ Your documentation should:
             context_parts.append(header + content + "\n")
         context = "\n".join(context_parts)
 
-        system_prompt = """You are an expert technical writer who produces System Architecture documentation from codebases. The goal is to explain the system like a flowchart in text: clear, step-by-step, and easy for developers to follow—without relying on code. Balance is critical: enough detail and depth to be useful, but not so much that the doc feels overwhelming or hard to read.
+        schema_path = Path(__file__).parent.parent / "config" / "architecture_schema.json"
+        schema_template = ""
+        if schema_path.exists():
+            try:
+                with open(schema_path, "r", encoding="utf-8") as f:
+                    schema_template = json.dumps(json.load(f), indent=2)
+            except Exception as e:
+                print(f"[LLMService] Warning: Could not load architecture schema: {e}")
 
-Your output is a single JSON object with exactly these keys:
-- "title": string — MUST be specific and detailed, NOT generic. Include the topic and repository context (e.g. "System Architecture: Storage and Uploads (neurocode-python)" or "Authentication and API Flow — my-api-repo"). Never use a generic title like "System Architecture" or "Architecture Overview" alone.
-- "description": string, one short sentence summarizing the doc (for metadata)
-- "sections": array of section objects. Each section has:
-  - "id": string, unique and sequential ("1", "2", "3", ...)
-  - "title": string, the section heading (e.g. "Overview", "Storage Module", "Components")
-  - "description": string, the FULL markdown content for that section only. No other keys.
+        schema_section = ""
+        if schema_template:
+            schema_section = f"""
+
+**REQUIRED JSON SCHEMA (you MUST follow this exactly):**
+```json
+{schema_template}
+```
+
+Return ONLY valid JSON matching this schema. No markdown code fence, no explanation. The root object must have "title", "description", and "sections" (array of objects with "id", "title", "description")."""
+
+        system_prompt = f"""You are an expert technical writer who produces System Architecture documentation from codebases. The goal is to explain the system like a flowchart in text: clear, step-by-step, and easy for developers to follow—without relying on code. Balance is critical: enough detail and depth to be useful, but not so much that the doc feels overwhelming or hard to read.
 
 **Format rules for section content (STRICT — this is architecture doc, not agent .md):**
 - Do NOT use ### or any subheadings inside a section. The section title is the only heading. Use only paragraphs, and use bullet points or tables only where they add clarity—not everywhere.
@@ -596,12 +608,7 @@ Your output is a single JSON object with exactly these keys:
 **Style:**
 - Easy and detailed for developers. Factual and clear. No marketing language. No ### inside sections.
 - If something is inferred, say so briefly (e.g. "Likely used for caching").
-
-**Output format:**
-Return ONLY valid JSON. No markdown code fence, no text before or after. Escape newlines in description strings as \\n.
-Example shape:
-{"title": "System Architecture: Storage and Uploads (neurocode-python)", "description": "Overview of storage and uploads.", "sections": [{"id": "1", "title": "Overview", "description": "Short paragraph..."}, {"id": "2", "title": "Local storage", "description": "One or two paragraphs explaining the module. Use a table or a short bullet list only if it helps."}, ...]}
-Ensure every section has id, title, and description. The "title" at the root must be specific and detailed. Ensure the JSON is valid and complete."""
+- Escape newlines in section description strings as \\n.{schema_section}"""
 
         user_message = f"""Generate System Architecture documentation for the {repo_name} repository.
 
