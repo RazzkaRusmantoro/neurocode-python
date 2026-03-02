@@ -962,9 +962,10 @@ async def generate_uml(request: GenerateUmlRequest):
             detail="organization_short_id and repository_name are required",
         )
 
+    diagram_type = (request.diagram_type or "class").lower()
     _log_rag("")
     _log_rag("=" * 60)
-    _log_rag("RAG UML GENERATION (CLASS DIAGRAM)")
+    _log_rag(f"RAG UML GENERATION ({diagram_type.upper()} DIAGRAM)")
     _log_rag("=" * 60)
     _log_rag(f"Repository: {request.repo_full_name}")
     _log_rag(f"Prompt: {request.prompt}")
@@ -1041,30 +1042,46 @@ async def generate_uml(request: GenerateUmlRequest):
         )
     _log_rag(f"✓ Found {len(search_results)} relevant chunks")
 
-    diagram_type = (request.diagram_type or "class").lower()
-    if diagram_type != "class":
+    if diagram_type not in ("class", "sequence"):
         raise HTTPException(
             status_code=400,
-            detail="Only diagram_type 'class' is supported currently.",
+            detail="diagram_type must be 'class' or 'sequence'.",
         )
 
-    _log_rag(f"\n[Step 7/7] Generating UML class diagram with Claude...")
-    uml_result = llm_service.generate_uml_class_diagram(
-        prompt=request.prompt,
-        context_chunks=search_results,
-        repo_name=request.repository_name or request.repo_full_name,
-    )
-    if uml_result.get("error"):
-        raise HTTPException(
-            status_code=422,
-            detail=f"UML generation failed: {uml_result.get('error')}",
+    if diagram_type == "class":
+        _log_rag(f"\n[Step 7/7] Generating UML class diagram with Claude...")
+        uml_result = llm_service.generate_uml_class_diagram(
+            prompt=request.prompt,
+            context_chunks=search_results,
+            repo_name=request.repository_name or request.repo_full_name,
         )
-
-    classes = uml_result.get("classes") or []
-    relationships = uml_result.get("relationships") or []
-    _log_rag(f"✓ Generated {len(classes)} classes, {len(relationships)} relationships")
-
-    diagram_data = {"classes": classes, "relationships": relationships}
+        if uml_result.get("error"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"UML generation failed: {uml_result.get('error')}",
+            )
+        classes = uml_result.get("classes") or []
+        relationships = uml_result.get("relationships") or []
+        _log_rag(f"✓ Generated {len(classes)} classes, {len(relationships)} relationships")
+        diagram_data = {"classes": classes, "relationships": relationships}
+    else:
+        _log_rag(f"\n[Step 7/7] Generating UML sequence diagram with Claude...")
+        uml_result = llm_service.generate_uml_sequence_diagram(
+            prompt=request.prompt,
+            context_chunks=search_results,
+            repo_name=request.repository_name or request.repo_full_name,
+        )
+        if uml_result.get("error"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"UML generation failed: {uml_result.get('error')}",
+            )
+        lifelines = uml_result.get("lifelines") or []
+        messages = uml_result.get("messages") or []
+        steps = uml_result.get("steps") or []
+        fragments = uml_result.get("fragments") or []
+        _log_rag(f"✓ Generated {len(lifelines)} lifelines, {len(messages)} messages, {len(steps)} steps")
+        diagram_data = {"lifelines": lifelines, "messages": messages, "steps": steps, "fragments": fragments}
 
     name = _uml_slug_from_prompt(request.prompt, diagram_type)
     slug = name

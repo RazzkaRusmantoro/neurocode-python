@@ -687,6 +687,225 @@ Produce your best UML class diagram: clear, conceptual (e.g. GitHub, Visual Tree
             print(f"[LLMService] Error generating UML class diagram: {e}")
             return {"error": str(e), "classes": [], "relationships": []}
 
+    def generate_uml_sequence_diagram(
+        self,
+        prompt: str,
+        context_chunks: List[Dict[str, Any]],
+        repo_name: str = "repository",
+    ) -> Dict[str, Any]:
+        """
+        Generate a UML sequence diagram as structured JSON from RAG context.
+        Returns lifelines (ordered), messages (ordered), and optional fragments.
+        """
+        schema_path = Path(__file__).parent.parent / "config" / "uml_sequence_diagram_schema.json"
+        schema_template = ""
+        if schema_path.exists():
+            try:
+                with open(schema_path, "r", encoding="utf-8") as f:
+                    schema_template = json.dumps(json.load(f), indent=2)
+            except Exception as e:
+                print(f"[LLMService] Warning: Could not load sequence schema: {e}")
+
+        context_parts = []
+        for i, chunk in enumerate(context_chunks, 1):
+            meta = chunk.get("metadata", {})
+            file_path = meta.get("file_path", "unknown")
+            class_name = meta.get("class_name", "")
+            function_name = meta.get("function_name", "")
+            language = meta.get("language", "")
+            start_line = meta.get("start_line", 0)
+            end_line = meta.get("end_line", 0)
+            content = chunk.get("content", "")
+            header = f"--- Code Chunk {i} ---\nFile: {file_path}\n"
+            if class_name:
+                header += f"Class: {class_name}\n"
+            if function_name:
+                header += f"Function/Method: {function_name}\n"
+            header += f"Language: {language}\nLines: {start_line}-{end_line}\n---\n"
+            context_parts.append(header + content + "\n")
+        context = "\n".join(context_parts)
+
+        schema_section = ""
+        if schema_template:
+            schema_section = f"""
+
+**REQUIRED JSON SCHEMA (you MUST follow this exactly):**
+```json
+{schema_template}
+```
+
+**CRITICAL:**
+- Return ONLY valid JSON. No markdown code blocks (no ```json), no explanations.
+- Lifelines array order = left-to-right. At least 2 lifelines.
+- Every message fromLifeline and toLifeline MUST be a lifeline id from the lifelines array.
+- ONE MESSAGE = ONE ROW. Strict top-to-bottom order.
+- STRICT CALL-RETURN PAIRING: Every call A→B (where A!=B) MUST have a return B→A (isReturn: true). No exceptions. NEVER use self-returns (B→B with isReturn)—they are invalid and will be stripped. Only cross-lifeline returns close activations.
+- SIMPLE: Use 3-5 lifelines. Keep it concise.
+- SELF-MESSAGES: Max 1 per lifeline, max 2 total. Standalone (no self-return after). opensNewActivation: true.
+- FRAGMENTS: Use if code has loops/conditionals. Not at index 0.
+- DESTROY: At least one lifeline with isDestroyed: true.
+- Optionally include "steps" with title and messageIndices."""
+
+        system_prompt = f"""You are an expert at producing clean, simple UML sequence diagrams.
+
+**RULES (follow ALL strictly):**
+
+1. SIMPLE AND CLEAN: Keep diagrams concise. Use 3-5 lifelines (not 8+). Each lifeline should be a meaningful participant. Fewer lifelines = cleaner diagram.
+
+2. STRICT CALL-RETURN SEQUENCE (MOST IMPORTANT):
+   The diagram must read as a clear sequence. For every call from A to B (where A != B), there MUST be a return from B to A (isReturn: true) that closes B's activation.
+   CORRECT pattern:
+     A→B call, B→A return, A→C call, C→A return
+   CORRECT nested pattern:
+     A→B call, B→C call, C→B return, B→A return
+   WRONG (missing returns):
+     A→B call, A→C call (B never returned!)
+   WRONG (self-return instead of real return):
+     A→B call, B→B self-return (this does NOT close B's activation from A's call!)
+   A self-message with isReturn: true is MEANINGLESS—never do it. Only cross-lifeline returns close activations.
+
+3. SELF-MESSAGES: Max 1 per lifeline, max 2 total. Only for truly important internal work. Set opensNewActivation: true. Do NOT follow a self-message with a self-return—self-messages are standalone visual elements.
+
+4. FRAGMENTS: Use one if the code has a loop or conditional. Not at index 0.
+
+5. DESTROY: At least one lifeline with isDestroyed: true.
+
+6. Each message = one row. Strict chronological order.{schema_section}
+
+Output ONLY the JSON object, nothing else."""
+
+        user_message = f"""Repository: {repo_name}
+
+User request: {prompt}
+
+Code context:
+{context}
+
+Produce a SIMPLE, CLEAN sequence diagram (3-5 lifelines). RULES:
+1. Every call A→B MUST have a matching return B→A. No exceptions. Never use self-returns (B→B isReturn)—only cross-lifeline returns.
+2. Max 1 self-message per lifeline (max 2 total). No self-returns.
+3. Use a fragment if there's a loop/conditional (not at index 0).
+4. At least one lifeline isDestroyed: true.
+5. End with a return to the initial caller.
+Output ONLY the JSON object."""
+
+        def extract_json_from_text(text: str) -> str:
+            cleaned = text.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:].strip()
+            elif cleaned.startswith("```"):
+                cleaned = cleaned[3:].strip()
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+            return cleaned
+
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=8192,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            response_text = ""
+            if response.content and len(response.content) > 0:
+                response_text = response.content[0].text.strip()
+            cleaned = extract_json_from_text(response_text)
+            json_match = re.search(r"\{.*", cleaned, re.DOTALL)
+            if not json_match:
+                return {"error": "No JSON object in response", "lifelines": [], "messages": [], "fragments": []}
+            json_str = json_match.group(0)
+            parsed = json.loads(json_str)
+            lifelines = parsed.get("lifelines") or []
+            messages = parsed.get("messages") or []
+            steps = parsed.get("steps") or []
+            fragments = parsed.get("fragments") or []
+            if not isinstance(lifelines, list):
+                lifelines = []
+            if not isinstance(messages, list):
+                messages = []
+            if not isinstance(steps, list):
+                steps = []
+            if not isinstance(fragments, list):
+                fragments = []
+            # Fragment must not be first: drop fragments that include message index 0
+            def fragment_ok(frag: dict) -> bool:
+                idx = frag.get("messageIndices") or []
+                return not idx or min(idx) >= 1
+
+            fragments = [f for f in fragments if isinstance(f, dict) and fragment_ok(f)]
+
+            lifeline_ids = {ll.get("id") or ll.get("label") for ll in lifelines if isinstance(ll, dict)}
+            for ll in lifelines:
+                if isinstance(ll, dict) and "id" not in ll and ll.get("label"):
+                    ll["id"] = ll["label"]
+                    lifeline_ids.add(ll["label"])
+            if len(lifelines) < 2:
+                return {"error": "At least 2 lifelines required", "lifelines": lifelines, "messages": [], "steps": [], "fragments": fragments}
+
+            valid_messages = []
+            for m in messages:
+                if not isinstance(m, dict):
+                    continue
+                src = m.get("fromLifeline")
+                tgt = m.get("toLifeline")
+                if src not in lifeline_ids or tgt not in lifeline_ids:
+                    continue
+                if src == tgt and m.get("isReturn"):
+                    continue
+                if src != tgt and "opensNewActivation" in m:
+                    m = {k: v for k, v in m.items() if k != "opensNewActivation"}
+                valid_messages.append(m)
+
+            # Ensure every cross-lifeline call has a matching return.
+            # If a lifeline makes a new call before the previous one was returned,
+            # insert the missing return right before the new call.
+            fixed_messages: list[dict] = []
+            pending: dict[str, str] = {}
+            for m in valid_messages:
+                src = m.get("fromLifeline", "")
+                tgt = m.get("toLifeline", "")
+                is_return = m.get("isReturn", False)
+                is_self = src == tgt
+                if not is_return and not is_self:
+                    if src in pending:
+                        old_callee = pending.pop(src)
+                        fixed_messages.append({
+                            "fromLifeline": old_callee,
+                            "toLifeline": src,
+                            "label": "return",
+                            "isReturn": True,
+                        })
+                    pending[src] = tgt
+                    fixed_messages.append(m)
+                elif is_return and not is_self:
+                    if tgt in pending and pending[tgt] == src:
+                        del pending[tgt]
+                    fixed_messages.append(m)
+                else:
+                    fixed_messages.append(m)
+            for caller, callee in list(pending.items()):
+                fixed_messages.append({
+                    "fromLifeline": callee,
+                    "toLifeline": caller,
+                    "label": "return",
+                    "isReturn": True,
+                })
+
+            if lifelines:
+                has_destroy = any(
+                    isinstance(ll, dict) and ll.get("isDestroyed")
+                    for ll in lifelines
+                )
+                if not has_destroy:
+                    lifelines[-1]["isDestroyed"] = True
+            return {"lifelines": lifelines, "messages": fixed_messages, "steps": steps, "fragments": fragments}
+        except json.JSONDecodeError as e:
+            print(f"[LLMService] Sequence diagram JSON parse error: {e}")
+            return {"error": str(e), "lifelines": [], "messages": [], "steps": [], "fragments": []}
+        except Exception as e:
+            print(f"[LLMService] Error generating sequence diagram: {e}")
+            return {"error": str(e), "lifelines": [], "messages": [], "steps": [], "fragments": []}
+
     def generate_parameter_descriptions_batch(
         self,
         parameters: List[Dict[str, Any]],

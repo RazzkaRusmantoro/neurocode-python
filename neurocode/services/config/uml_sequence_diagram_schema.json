@@ -1,0 +1,61 @@
+{
+  "type": "object",
+  "required": ["lifelines", "messages"],
+  "properties": {
+    "lifelines": {
+      "type": "array",
+      "description": "Ordered list of lifelines (left to right). At least 2 required. Use id to reference in messages.",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique id; must match fromLifeline/toLifeline in messages." },
+          "label": { "type": "string", "description": "Display name (e.g. User, Client, Server)." },
+          "isActor": { "type": "boolean", "description": "True for actor stick figure." },
+          "isDestroyed": { "type": "boolean", "description": "True to show destroy (X). At least one lifeline must have isDestroyed: true." }
+        }
+      }
+    },
+    "messages": {
+      "type": "array",
+      "description": "Messages in strict top-to-bottom order. One message = one row. EVERY call A→B MUST have a return B→A (isReturn: true). NEVER use self-returns (B→B isReturn)—they are invalid. Keep diagram simple (3-5 lifelines).",
+      "items": {
+        "type": "object",
+        "required": ["fromLifeline", "toLifeline", "label"],
+        "properties": {
+          "fromLifeline": { "type": "string", "description": "Lifeline id of sender." },
+          "toLifeline": { "type": "string", "description": "Lifeline id of receiver." },
+          "label": { "type": "string", "description": "Message label (e.g. login(), token, process())." },
+          "isReturn": { "type": "boolean", "description": "True for return/dashed messages. Only valid for cross-lifeline returns (B→A). NEVER set isReturn on self-messages." },
+          "opensNewActivation": { "type": "boolean", "description": "True ONLY for self-messages (creates nested activation box). Max 1 per lifeline, max 2 total." }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "description": "Optional step-by-step sections. Each step has a title and the message indices (0-based) that belong to it.",
+      "items": {
+        "type": "object",
+        "required": ["title", "messageIndices"],
+        "properties": {
+          "title": { "type": "string", "description": "Short step title (e.g. Request reports, Security check)." },
+          "messageIndices": { "type": "array", "items": { "type": "integer" }, "description": "Zero-based indices of messages in this step." }
+        }
+      }
+    },
+    "fragments": {
+      "type": "array",
+      "description": "Combined fragments (alt, opt, loop). Use at least one if code has conditionals/loops. Do NOT start at index 0.",
+      "items": {
+        "type": "object",
+        "required": ["operator", "messageIndices"],
+        "properties": {
+          "operator": { "type": "string", "enum": ["alt", "opt", "loop", "par"], "description": "Fragment type." },
+          "condition": { "type": "string", "description": "Optional condition e.g. [hasAnotherReport = true]." },
+          "messageIndices": { "type": "array", "items": { "type": "integer" }, "description": "Zero-based indices. Must not include 0 (no fragment first)." }
+        }
+      }
+    }
+  }
+}
