@@ -22,8 +22,131 @@ from neurocode.config import (
     mongodb_service
 )
 from neurocode.services.index_pipeline import run_index_pipeline, build_collection_name
+from neurocode.services.agent_docs_validation import validate_agent_docs_bundle
+from neurocode.models.agent_docs import AgentDocsBundle
 
 router = APIRouter()
+
+
+def _agent_bundle_to_documentation(bundle: AgentDocsBundle) -> Dict[str, Any]:
+    """
+    Convert a validated agent docs bundle into the standard documentation shape,
+    where **each generated .md file is shown as a copyable code snippet**.
+
+    - Section 1 is the main GUIDE.md
+    - Sections 2..N are individual rule .md files
+    """
+
+    guide = bundle.guide
+
+    def _frontmatter_block(role: Optional[str], context: Optional[str]) -> str:
+        lines: List[str] = ["----"]
+        if role:
+            lines.append(f"role: {role}")
+        if context:
+            lines.append(f"context: {context}")
+        lines.append("----")
+        return "\n".join(lines)
+
+    sections: List[Dict[str, Any]] = []
+
+    # Section 1: GUIDE.md as a full .md file inside a code block
+    guide_role = "Main AI guide for this repository (load this first)."
+    guide_context = guide.when_to_use.strip()
+
+    guide_lines: List[str] = []
+    guide_lines.append(_frontmatter_block(guide_role, guide_context))
+    guide_lines.append("")
+    guide_lines.append("# GUIDE")
+    guide_lines.append("")
+    guide_lines.append("## What this is for")
+    guide_lines.append("")
+    guide_lines.append(guide.description.strip())
+    guide_lines.append("")
+    guide_lines.append("## When to use")
+    guide_lines.append("")
+    guide_lines.append(guide.when_to_use.strip())
+    guide_lines.append("")
+
+    if guide.topic_pointers:
+        guide_lines.append("## Topic pointers")
+        guide_lines.append("")
+        for ptr in guide.topic_pointers:
+            guide_lines.append(f"### {ptr.title}")
+            guide_lines.append("")
+            guide_lines.append(ptr.body.strip())
+            guide_lines.append("")
+            guide_lines.append(f"Reference rule file: `{ptr.rule_path}`")
+            guide_lines.append("")
+
+    guide_lines.append("## How to use")
+    guide_lines.append("")
+    for item in guide.how_to_use:
+        guide_lines.append(f"- `{item.path}` – {item.description}")
+
+    guide_md_content = "\n".join(guide_lines).strip()
+    guide_md_code_block = f"```md\n{guide_md_content}\n```"
+
+    sections.append(
+        {
+            "id": "1",
+            "title": "GUIDE.md",
+            "description": guide_md_code_block,
+            "code_references": [],
+            "subsections": [],
+        }
+    )
+
+    # Sections 2..N: Each rule as its own .md file inside a code block
+    for idx, rule in enumerate(bundle.rules, start=2):
+        rule_role = rule.role or f"Rule for {rule.name}"
+        rule_context = rule.description.strip()
+
+        rule_lines: List[str] = []
+        rule_lines.append(_frontmatter_block(rule_role, rule_context))
+        rule_lines.append("")
+        rule_lines.append(f"# {rule.name.replace('-', ' ').title()}")
+        rule_lines.append("")
+
+        if rule.prerequisites:
+            rule_lines.append("## Prerequisites")
+            rule_lines.append("")
+            for p in rule.prerequisites:
+                rule_lines.append(f"- {p}")
+            rule_lines.append("")
+
+        # Main playbook body (already markdown)
+        rule_lines.append(rule.body.strip())
+
+        if rule.input:
+            rule_lines.append("")
+            rule_lines.append("## Input")
+            rule_lines.append("")
+            rule_lines.append(rule.input.strip())
+
+        if rule.output:
+            rule_lines.append("")
+            rule_lines.append("## Output")
+            rule_lines.append("")
+            rule_lines.append(rule.output.strip())
+
+        rule_md_content = "\n".join(rule_lines).strip()
+        rule_md_code_block = f"```md\n{rule_md_content}\n```"
+
+        sections.append(
+            {
+                "id": str(idx),
+                "title": f"{rule.name}.md",
+                "description": rule_md_code_block,
+                "code_references": [],
+                "subsections": [],
+            }
+        )
+
+    return {
+        "description": guide.description,
+        "sections": sections,
+    }
 
 
 @router.post("/api/generate-documentation")
@@ -208,17 +331,58 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         
         print(f"✓ Found {len(search_results)} relevant chunks")
         
-        # Step 7: Generate structured documentation using LLM
-        print(f"\n[Step 7/10] Generating structured documentation with Claude...")
-        structured_result = llm_service.generate_structured_documentation(
-            prompt=request.prompt,
-            context_chunks=search_results,
-            repo_name=request.repository_name or request.repo_full_name
-        )
-        
-        documentation = structured_result.get("documentation", {"sections": []})
-        # Get IDs from LLM (JSON only has IDs)
-        code_reference_ids_from_llm = structured_result.get("code_reference_ids", [])
+        # Step 7: Generate documentation (branch: AI-Agent custom vs standard)
+        documentation = None
+        code_reference_ids_from_llm = []
+        code_reference_details = []
+        arch_result = None  # used for architecture doc title when type is architecture
+
+        if request.documentation_type == "aiAgent" and (request.ai_agent_doc_kind or "") == "custom":
+            print(f"\n[Step 7/10] Generating AI-Agent docs bundle (guide + rules) with Claude...")
+            raw_bundle = llm_service.generate_agent_docs_bundle(
+                prompt=request.prompt,
+                context_chunks=search_results,
+                repo_name=request.repository_name or request.repo_full_name,
+                extra_instructions=(request.ai_agent_extra_instructions or "").strip(),
+            )
+            if raw_bundle.get("error"):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"AI-Agent bundle generation failed: {raw_bundle.get('error')}",
+                )
+            ok, bundle, err = validate_agent_docs_bundle(raw_bundle)
+            if not ok or bundle is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"AI-Agent bundle validation failed: {err}",
+                )
+            documentation = _agent_bundle_to_documentation(bundle)
+            code_reference_ids_from_llm = []
+            code_reference_details = []
+            print(f"✓ Generated guide + {len(bundle.rules)} rules")
+        elif request.documentation_type == "architecture":
+            print(f"\n[Step 7/10] Generating System Architecture documentation with Claude...")
+            arch_result = llm_service.generate_architecture_documentation(
+                prompt=request.prompt,
+                context_chunks=search_results,
+                repo_name=request.repository_name or request.repo_full_name,
+            )
+            documentation = {
+                "description": arch_result.get("description", "").strip(),
+                "sections": arch_result.get("sections", []),
+            }
+            code_reference_ids_from_llm = []
+            code_reference_details = []
+            print(f"✓ Generated System Architecture documentation ({len(documentation['sections'])} sections)")
+        else:
+            print(f"\n[Step 7/10] Generating structured documentation with Claude...")
+            structured_result = llm_service.generate_structured_documentation(
+                prompt=request.prompt,
+                context_chunks=search_results,
+                repo_name=request.repository_name or request.repo_full_name
+            )
+            documentation = structured_result.get("documentation", {"sections": []})
+            code_reference_ids_from_llm = structured_result.get("code_reference_ids", [])
         
         # Validate limits
         if len(code_reference_ids_from_llm) > 15:
@@ -680,7 +844,11 @@ Description:"""
             
             return "Documentation"
         
-        doc_title = extract_title(documentation, request.prompt)
+        doc_title = (
+            arch_result.get("title", "System Architecture")
+            if arch_result is not None
+            else extract_title(documentation, request.prompt)
+        )
         doc_description = documentation.get("description", "").strip()
         print(f"✓ Extracted title: {doc_title}")
         if doc_description:
@@ -819,7 +987,9 @@ Description:"""
                         "prompt": request.prompt,
                         "repository": request.repo_full_name,
                         "branch": branch,
-                        "scope": "custom"
+                        "scope": "custom",
+                        "documentation_type": getattr(request, "documentation_type", None),
+                        "ai_agent_doc_kind": getattr(request, "ai_agent_doc_kind", None),
                     },
                     "documentation": documentation,
                     "code_references": code_reference_ids
@@ -866,6 +1036,9 @@ Description:"""
                 "s3_url": s3_result["s3_url"],
                 "content_size": s3_result["content_size"]
             }
+            # Include documentation type in response so Next.js can store in MongoDB
+            result["documentation_type"] = getattr(request, "documentation_type", None)
+            result["ai_agent_doc_kind"] = getattr(request, "ai_agent_doc_kind", None)
         else:
             result["documentation"] = documentation
         

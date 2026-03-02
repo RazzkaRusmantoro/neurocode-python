@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentGuide",
+  "description": "Main guide .md (e.g. GUIDE.md or SKILL.md): explains what the folder is for and how to use each rule .md",
+  "type": "object",
+  "required": ["name", "description", "when_to_use", "how_to_use"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Slug for the filename, e.g. 'guide' or 'overview' (without .md)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Short description of what this guide covers (used in frontmatter)"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional frontmatter metadata",
+      "properties": {
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tags for discovery (e.g. remotion, video, react)"
+        }
+      }
+    },
+    "when_to_use": {
+      "type": "string",
+      "description": "Body text for the 'When to use' section (1–2 paragraphs)"
+    },
+    "topic_pointers": {
+      "type": "array",
+      "description": "Optional short sections that point to a specific rule file (e.g. 'Captions' -> rules/subtitles.md)",
+      "items": {
+        "type": "object",
+        "required": ["title", "body", "rule_path"],
+        "properties": {
+          "title": { "type": "string", "description": "Section heading, e.g. 'Captions'" },
+          "body": { "type": "string", "description": "One sentence + instruction to load the rule file" },
+          "rule_path": { "type": "string", "description": "Path to the rule .md, e.g. 'rules/subtitles.md'" }
+        }
+      }
+    },
+    "how_to_use": {
+      "type": "array",
+      "description": "List of rule files with descriptions (main index of all rule .mds)",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "description"],
+        "properties": {
+          "path": { "type": "string", "description": "Path to rule .md, e.g. 'rules/timing.md'" },
+          "description": { "type": "string", "description": "One-line description of what the rule covers" }
+        }
+      }
+    }
+  }
+}

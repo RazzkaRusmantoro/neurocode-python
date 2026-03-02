@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AgentRule",
+  "description": "Single rule/playbook .md: role, description, prerequisites, body (playbook content), optional input/output",
+  "type": "object",
+  "required": ["name", "description", "body"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Slug for the filename, e.g. 'timing' or 'subtitles' (without .md)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Short description of what this rule covers (used in frontmatter)"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional frontmatter metadata",
+      "properties": {
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Tags for discovery"
+        }
+      }
+    },
+    "role": {
+      "type": "string",
+      "description": "Optional: what is the role of this .md (when to load it, what it governs)"
+    },
+    "prerequisites": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional list of prerequisites (e.g. other rules to read first, concepts to know)"
+    },
+    "body": {
+      "type": "string",
+      "description": "Main markdown content: sections (##), code blocks, lists, steps. The playbook/rules content."
+    },
+    "input": {
+      "type": "string",
+      "description": "Optional: when the rule has inputs (e.g. expected format, parameters)"
+    },
+    "output": {
+      "type": "string",
+      "description": "Optional: when the rule has outputs (e.g. what it produces, return format)"
+    }
+  }
+}

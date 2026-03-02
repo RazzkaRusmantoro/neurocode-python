@@ -39,6 +39,9 @@ class GenerateDocsRAGRequest(BaseModel):
     repository_id: Optional[str] = None
     repository_name: Optional[str] = None
     top_k: Optional[int] = 20  # Number of chunks to retrieve
+    documentation_type: Optional[str] = None  # api | architecture | aiAgent | endUser | test | onboarding
+    ai_agent_doc_kind: Optional[str] = None  # context | playbook | custom (when documentation_type == 'aiAgent')
+    ai_agent_extra_instructions: Optional[str] = None  # Required when documentation_type == 'aiAgent'
 
 
 class GetDocumentationRequest(BaseModel):

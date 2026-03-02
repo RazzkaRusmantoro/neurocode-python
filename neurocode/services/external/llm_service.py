@@ -56,8 +56,10 @@ class LLMService:
             raise ValueError("ANTHROPIC_API_KEY environment variable is required")
         
         self.client = Anthropic(api_key=api_key)
-        self.model = "claude-haiku-4-5-20251001"  # Premium model for main generation
-        self.model_fast = "claude-haiku-4-5-20251001"  # Cheaper model for simple tasks (~10x cheaper)
+        # Model names can be configured via environment variables.
+        # Falls back to the default Claude Haiku model if not set.
+        self.model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")  # Premium model for main generation
+        self.model_fast = os.getenv("ANTHROPIC_MODEL_FAST", self.model)  # Cheaper model for simple tasks (~10x cheaper)
 
     def chat_with_context(
         self,
@@ -221,6 +223,7 @@ Your documentation should:
 **INSTRUCTIONS:**
 1. Generate the main documentation in structured JSON format with hierarchical sections:
    - **REQUIRED**: Include a top-level `description` field (2-3 sentences) that briefly describes what this documentation is about. This should be a concise overview of the documentation's purpose and scope.
+   - **REQUIRED**: The first section (id "1") MUST have a specific, detailed title that reflects the documentation topic and scope—e.g. "Authentication and session handling", "Payment flow and Stripe integration", "User API and request lifecycle". Do NOT use a generic title like "Introduction", "Overview", or "Documentation" for section 1. This title is used as the document title in the UI and must distinguish this doc from others.
    - MAXIMUM 10 sections total (including subsections count toward this limit) - use only as many as needed, up to 10
    - Create sections with IDs like "1", "1.1", "2", "2.1", "2.2", etc.
    - **CRITICAL REQUIREMENT**: The documentation MUST include subsections. Not every section needs subsections, but the overall documentation structure MUST have at least some subsections (e.g., section "1" should have "1.1", "1.2", etc., or section "2" should have "2.1", "2.2", etc.). This is REQUIRED - do not generate documentation without any subsections.
@@ -530,6 +533,248 @@ Your documentation should:
         except Exception as e:
             print(f"[LLMService] Error generating documentation: {e}")
             raise
+
+    def generate_architecture_documentation(
+        self,
+        prompt: str,
+        context_chunks: List[Dict[str, Any]],
+        repo_name: str = "repository",
+    ) -> Dict[str, Any]:
+        """
+        Generate System Architecture documentation as multiple sections.
+
+        Structure (order matters):
+        1. Overview (one section)
+        2. Custom sections (as many as needed) that fully address the user's prompt — detailed
+        3. Components, Data flow & communication, External dependencies,
+           Design decisions & conventions, Deployment & runtime (one section each, at the end)
+
+        Returns:
+            { "title": str, "description": str, "sections": [ { "id", "title", "description" }, ... ] }
+        """
+        context_parts = []
+        for i, chunk in enumerate(context_chunks, 1):
+            meta = chunk.get("metadata", {})
+            file_path = meta.get("file_path", "unknown")
+            content = chunk.get("content", "")
+            header = f"--- Code Chunk {i} ---\nFile: {file_path}\n---\n"
+            context_parts.append(header + content + "\n")
+        context = "\n".join(context_parts)
+
+        system_prompt = """You are an expert technical writer who produces System Architecture documentation from codebases. The goal is to explain the system like a flowchart in text: clear, step-by-step, and easy for developers to follow—without relying on code. Balance is critical: enough detail and depth to be useful, but not so much that the doc feels overwhelming or hard to read.
+
+Your output is a single JSON object with exactly these keys:
+- "title": string — MUST be specific and detailed, NOT generic. Include the topic and repository context (e.g. "System Architecture: Storage and Uploads (neurocode-python)" or "Authentication and API Flow — my-api-repo"). Never use a generic title like "System Architecture" or "Architecture Overview" alone.
+- "description": string, one short sentence summarizing the doc (for metadata)
+- "sections": array of section objects. Each section has:
+  - "id": string, unique and sequential ("1", "2", "3", ...)
+  - "title": string, the section heading (e.g. "Overview", "Storage Module", "Components")
+  - "description": string, the FULL markdown content for that section only. No other keys.
+
+**Format rules for section content (STRICT — this is architecture doc, not agent .md):**
+- Do NOT use ### or any subheadings inside a section. The section title is the only heading. Use only paragraphs, and use bullet points or tables only where they add clarity—not everywhere.
+- Balance prose and structure: write short, clear paragraphs that explain what things do and how they connect. Use bullet points only for discrete lists (e.g. a list of components, a list of steps in a flow). Use tables where they make information scannable (e.g. component name | role | path; or env var | purpose). Do not turn every sentence into a bullet—that is hard to read.
+- Aim for detail and depth without walls of text: explain the flow (who calls whom, in what order), but keep paragraphs focused. If a section gets long, use one short table plus one or two paragraphs rather than a long bullet list.
+- Do NOT include code blocks or code snippets unless strictly necessary (e.g. a single env var name in quotes). Prefer plain English descriptions.
+- The doc should feel readable: a developer can grasp the architecture and flow without being overwhelmed. Avoid both excessive bullets and excessive prose.
+
+**Section order (you MUST follow this):**
+
+1. **Exactly one section: Overview** (id "1")
+   - Purpose of the system, tech stack, high-level architecture style. One or two substantive paragraphs.
+
+2. **Custom sections** (ids "2", "3", "4", ... — as many as needed)
+   - One section per topic that addresses the user's prompt. Be thorough but concise: use paragraphs for explanation, bullets only for real lists, tables when they help (e.g. options, components).
+
+3. **Reference sections** (one section each, at the end, in this order):
+   - **Components** — a table (name, role, path) is ideal here; add one or two sentences before or after to explain how they relate.
+   - **Data flow & communication** — short paragraphs and/or numbered steps for the flow. Not every step needs to be a bullet.
+   - **External dependencies** — table or short bullet list with one line per dependency; avoid long paragraphs.
+   - **Design decisions & conventions** — a few short paragraphs and/or a small table; keep it scannable.
+   - **Deployment & runtime** — table for env vars (name, purpose) if helpful; short prose for how the app is run.
+
+**Style:**
+- Easy and detailed for developers. Factual and clear. No marketing language. No ### inside sections.
+- If something is inferred, say so briefly (e.g. "Likely used for caching").
+
+**Output format:**
+Return ONLY valid JSON. No markdown code fence, no text before or after. Escape newlines in description strings as \\n.
+Example shape:
+{"title": "System Architecture: Storage and Uploads (neurocode-python)", "description": "Overview of storage and uploads.", "sections": [{"id": "1", "title": "Overview", "description": "Short paragraph..."}, {"id": "2", "title": "Local storage", "description": "One or two paragraphs explaining the module. Use a table or a short bullet list only if it helps."}, ...]}
+Ensure every section has id, title, and description. The "title" at the root must be specific and detailed. Ensure the JSON is valid and complete."""
+
+        user_message = f"""Generate System Architecture documentation for the {repo_name} repository.
+
+**User request — create detailed custom sections that fully address this (use as many sections as needed):** {prompt}
+
+**Code context:**
+{context}
+
+Return ONLY the JSON object with keys: title, description, sections (array of {{ id, title, description }})."""
+
+        try:
+            with self.client.messages.stream(
+                model=self.model,
+                max_tokens=24000,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            ) as stream:
+                response_text = ""
+                for event in stream:
+                    if event.type == "content_block_delta":
+                        if hasattr(event.delta, "text"):
+                            response_text += event.delta.text
+                    elif event.type == "message_stop":
+                        break
+
+            response_text = response_text.strip()
+            if response_text.startswith("```"):
+                response_text = re.sub(r"^```(?:json)?\s*", "", response_text)
+                response_text = re.sub(r"\s*```$", "", response_text)
+            parsed = json.loads(response_text)
+            title = parsed.get("title") or "System Architecture"
+            description = parsed.get("description") or "System architecture overview."
+            raw_sections = parsed.get("sections") or []
+            sections = []
+            for i, sec in enumerate(raw_sections):
+                if not isinstance(sec, dict):
+                    continue
+                sec_id = sec.get("id") or str(i + 1)
+                sec_title = sec.get("title") or f"Section {sec_id}"
+                sec_desc = sec.get("description") or ""
+                sections.append({
+                    "id": sec_id,
+                    "title": sec_title,
+                    "description": sec_desc,
+                    "code_references": [],
+                    "subsections": [],
+                })
+            if not sections:
+                sections = [{
+                    "id": "1",
+                    "title": "Overview",
+                    "description": "(No sections generated; please retry.)",
+                    "code_references": [],
+                    "subsections": [],
+                }]
+            return {
+                "title": title,
+                "description": description,
+                "sections": sections,
+            }
+        except json.JSONDecodeError as e:
+            print(f"[LLMService] Architecture doc JSON parse error: {e}")
+            return {
+                "title": "System Architecture",
+                "description": "System architecture overview.",
+                "sections": [{
+                    "id": "1",
+                    "title": "Overview",
+                    "description": "(Generation produced invalid JSON; please retry.)",
+                    "code_references": [],
+                    "subsections": [],
+                }],
+            }
+        except Exception as e:
+            print(f"[LLMService] Error generating architecture documentation: {e}")
+            raise
+
+    def generate_agent_docs_bundle(
+        self,
+        prompt: str,
+        context_chunks: List[Dict[str, Any]],
+        repo_name: str = "repository",
+        extra_instructions: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate an AI-Agent .md bundle (guide + rules) as JSON matching agent_docs_bundle_schema.
+        Caller should validate with validate_agent_docs_bundle().
+        """
+        schema_path = Path(__file__).parent.parent / "config" / "agent_docs_bundle_schema.json"
+        schema_template = ""
+        if schema_path.exists():
+            try:
+                with open(schema_path, "r", encoding="utf-8") as f:
+                    schema_template = json.dumps(json.load(f), indent=2)
+            except Exception as e:
+                print(f"[LLMService] Warning: Could not load agent docs bundle schema: {e}")
+
+        context_parts = []
+        for i, chunk in enumerate(context_chunks, 1):
+            meta = chunk.get("metadata", {})
+            file_path = meta.get("file_path", "unknown")
+            content = chunk.get("content", "")
+            header = f"--- Code Chunk {i} ---\nFile: {file_path}\n---\n"
+            context_parts.append(header + content + "\n")
+        context = "\n".join(context_parts)
+
+        schema_section = ""
+        if schema_template:
+            schema_section = f"""
+
+**REQUIRED JSON SCHEMA (you MUST follow this exactly):**
+```json
+{schema_template}
+```
+
+Return ONLY valid JSON matching this schema. No markdown code fence, no explanation. The root object must have "guide" and "rules" (array of at least one rule)."""
+        instructions = extra_instructions or ""
+        system_prompt = f"""You are an expert at writing AI-Agent documentation: structured .md files that explain a codebase or procedures for AI agents (e.g. Cursor, Claude). You output a bundle of one main guide and multiple rule/playbook files.
+
+**Format rules (strict):**
+- Do NOT use markdown tables anywhere. Use bullet lists, numbered lists, and short paragraphs instead.
+- In both the guide and each rule, include clear English instructional text: explain what to do, when to use which file, and how to follow the rules in plain language. Code blocks and lists are good, but add brief prose so an AI agent knows how to apply the content.
+
+**Guide (GUIDE.md):**
+- At the very top, the guide MUST state what type of AI agent will use these .mds and what that agent is for (e.g. "This playbook is for an agent that integrates with LLM APIs" or "For coding assistants working on Remotion projects"). Put this in the first 1–2 sentences of when_to_use or in description so it appears at the top when rendered.
+- Then: name, description, when_to_use (1–2 paragraphs), optional topic_pointers (sections that point to a rule file), and how_to_use (list of {{ path, description }} for every rule).
+
+**Rules:**
+- Each rule: name, description, optional role, optional prerequisites (array of strings), **body** (main markdown: sections, code blocks, steps, and short instructional prose—no tables), optional input, optional output.
+
+Use the code context below to ground the guide and rules in the actual repository. Be specific and reference real paths, modules, and patterns. Use headers (e.g. ##), code blocks, and lists only—no tables.{schema_section}"""
+
+        user_message = f"""Generate an AI-Agent documentation bundle for the {repo_name} repository.
+
+**User request:** {prompt}
+{f'**Additional instructions:** {instructions}' if instructions else ''}
+
+**Code context:**
+{context}
+
+Return ONLY the JSON object (no ```json wrapper, no explanation)."""
+
+        try:
+            with self.client.messages.stream(
+                model=self.model,
+                max_tokens=32000,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            ) as stream:
+                response_text = ""
+                for event in stream:
+                    if event.type == "content_block_delta":
+                        if hasattr(event.delta, "type") and event.delta.type == "text_delta":
+                            if hasattr(event.delta, "text"):
+                                response_text += event.delta.text
+                    elif event.type == "message_stop":
+                        break
+            cleaned = response_text.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:].strip()
+            elif cleaned.startswith("```"):
+                cleaned = cleaned[3:].strip()
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+            json_match = re.search(r"\{.*", cleaned, re.DOTALL)
+            if json_match:
+                parsed = json.loads(json_match.group(0))
+                if "guide" in parsed and "rules" in parsed:
+                    return parsed
+            return {"error": "Failed to parse agent docs bundle JSON", "guide": None, "rules": []}
+        except Exception as e:
+            print(f"[LLMService] Error generating agent docs bundle: {e}")
+            return {"error": str(e), "guide": None, "rules": []}
 
     def generate_uml_class_diagram(
         self,
