@@ -1136,6 +1136,8 @@ async def generate_uml(request: GenerateUmlRequest):
         )
 
     diagram_type = (request.diagram_type or "class").lower()
+    if diagram_type == "usecase":
+        diagram_type = "use_case"
     _log_rag("")
     _log_rag("=" * 60)
     _log_rag(f"RAG UML GENERATION ({diagram_type.upper()} DIAGRAM)")
@@ -1215,10 +1217,10 @@ async def generate_uml(request: GenerateUmlRequest):
         )
     _log_rag(f"✓ Found {len(search_results)} relevant chunks")
 
-    if diagram_type not in ("class", "sequence"):
+    if diagram_type not in ("class", "sequence", "use_case"):
         raise HTTPException(
             status_code=400,
-            detail="diagram_type must be 'class' or 'sequence'.",
+            detail="diagram_type must be 'class', 'sequence', or 'use_case'.",
         )
 
     if diagram_type == "class":
@@ -1237,7 +1239,7 @@ async def generate_uml(request: GenerateUmlRequest):
         relationships = uml_result.get("relationships") or []
         _log_rag(f"✓ Generated {len(classes)} classes, {len(relationships)} relationships")
         diagram_data = {"classes": classes, "relationships": relationships}
-    else:
+    elif diagram_type == "sequence":
         _log_rag(f"\n[Step 7/7] Generating UML sequence diagram with Claude...")
         uml_result = llm_service.generate_uml_sequence_diagram(
             prompt=request.prompt,
@@ -1255,6 +1257,29 @@ async def generate_uml(request: GenerateUmlRequest):
         fragments = uml_result.get("fragments") or []
         _log_rag(f"✓ Generated {len(lifelines)} lifelines, {len(messages)} messages, {len(steps)} steps")
         diagram_data = {"lifelines": lifelines, "messages": messages, "steps": steps, "fragments": fragments}
+    elif diagram_type == "use_case":
+        _log_rag(f"\n[Step 7/7] Generating UML use case diagram with Claude...")
+        uml_result = llm_service.generate_uml_use_case_diagram(
+            prompt=request.prompt,
+            context_chunks=search_results,
+            repo_name=request.repository_name or request.repo_full_name,
+        )
+        if uml_result.get("error"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"UML generation failed: {uml_result.get('error')}",
+            )
+        system_boundary = uml_result.get("systemBoundary") or {}
+        actors = uml_result.get("actors") or []
+        use_cases = uml_result.get("useCases") or []
+        relationships = uml_result.get("relationships") or []
+        _log_rag(f"✓ Generated use case diagram: {len(actors)} actors, {len(use_cases)} use cases, {len(relationships)} relationships")
+        diagram_data = {
+            "systemBoundary": system_boundary,
+            "actors": actors,
+            "useCases": use_cases,
+            "relationships": relationships,
+        }
 
     name = _uml_slug_from_prompt(request.prompt, diagram_type)
     slug = name

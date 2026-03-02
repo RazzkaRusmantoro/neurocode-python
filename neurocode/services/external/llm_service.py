@@ -1158,6 +1158,207 @@ Output ONLY the JSON object."""
             print(f"[LLMService] Error generating sequence diagram: {e}")
             return {"error": str(e), "lifelines": [], "messages": [], "steps": [], "fragments": []}
 
+    def generate_uml_use_case_diagram(
+        self,
+        prompt: str,
+        context_chunks: List[Dict[str, Any]],
+        repo_name: str = "repository",
+    ) -> Dict[str, Any]:
+        """
+        Generate a UML use case diagram as structured JSON from RAG context.
+        Returns systemBoundary, actors, useCases, and relationships (communication, include, extend, generalization).
+        """
+        schema_path = Path(__file__).parent.parent / "config" / "uml_use_case_diagram_schema.json"
+        schema_template = ""
+        if schema_path.exists():
+            try:
+                with open(schema_path, "r", encoding="utf-8") as f:
+                    schema_template = json.dumps(json.load(f), indent=2)
+            except Exception as e:
+                print(f"[LLMService] Warning: Could not load use case schema: {e}")
+
+        context_parts = []
+        for i, chunk in enumerate(context_chunks, 1):
+            meta = chunk.get("metadata", {})
+            file_path = meta.get("file_path", "unknown")
+            class_name = meta.get("class_name", "")
+            function_name = meta.get("function_name", "")
+            language = meta.get("language", "")
+            start_line = meta.get("start_line", 0)
+            end_line = meta.get("end_line", 0)
+            content = chunk.get("content", "")
+            header = f"--- Code Chunk {i} ---\nFile: {file_path}\n"
+            if class_name:
+                header += f"Class: {class_name}\n"
+            if function_name:
+                header += f"Function/Method: {function_name}\n"
+            header += f"Language: {language}\nLines: {start_line}-{end_line}\n---\n"
+            context_parts.append(header + content + "\n")
+        context = "\n".join(context_parts)
+
+        schema_section = ""
+        if schema_template:
+            schema_section = f"""
+
+**REQUIRED JSON SCHEMA (you MUST follow this exactly):**
+```json
+{schema_template}
+```
+
+**CRITICAL:**
+- Return ONLY valid JSON. No markdown code blocks (no ```json), no explanations.
+- ACTOR PLACEMENT: Every actor MUST have "placement": "left" or "right". left = primary actors who initiate (User, Customer, Student, Admin). right = secondary/system actors (Database, Payment Gateway, External API, Mail Service).
+- Every relationship source and target MUST be an id from actors or useCases.
+- MAX 3 ASSOCIATIONS PER USE CASE: Each use case must be the source or target of at most 3 relationships total. Prefer fewer, clearer links. If you need more, create a separate use case diagram instead.
+- communication: actor-use case or use case-use case. include/extend/generalization as in schema.
+- Keep diagram simple: 2-5 actors, 3-8 use cases. Every actor and use case in at least one relationship."""
+
+        system_prompt = f"""You are an expert at producing clear UML use case diagrams from code and requirements.
+
+**Design goals:**
+- PRIMARY ACTORS (placement: left): users who initiate use cases (Customer, Student, Admin, User). Place on the left of the system boundary.
+- SECONDARY/SYSTEM ACTORS (placement: right): systems that support use cases (Database, Payment Gateway, API, Mail Service). Place on the right of the boundary.
+- Each use case must have at most 3 associations (total as source or target). Prefer simplicity; suggest multiple diagrams if needed.
+- Use cases inside the boundary. Every actor and every use case must appear in at least one relationship.
+- Use communication for actor-use case links; <<include>>/<<extend>>/generalization where appropriate.
+
+Your task is to output a single JSON object with systemBoundary (label), actors, useCases, and relationships.{schema_section}
+
+Output ONLY the JSON object, nothing else."""
+
+        user_message = f"""Repository: {repo_name}
+
+User request for the diagram: {prompt}
+
+Code context:
+{context}
+
+Produce a UML use case diagram. For each actor set placement: "left" for primary (User, Admin, Customer) or "right" for systems (Database, Payment Gateway). Each use case must have at most 3 relationships. systemBoundary, actors, useCases, relationships. Output ONLY the JSON object."""
+
+        def extract_json_from_text(text: str) -> str:
+            cleaned = text.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:].strip()
+            elif cleaned.startswith("```"):
+                cleaned = cleaned[3:].strip()
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+            return cleaned
+
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=8192,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            response_text = ""
+            if response.content and len(response.content) > 0:
+                response_text = response.content[0].text.strip()
+            cleaned = extract_json_from_text(response_text)
+            json_match = re.search(r"\{.*", cleaned, re.DOTALL)
+            if not json_match:
+                return {"error": "No JSON object in response", "systemBoundary": {}, "actors": [], "useCases": [], "relationships": []}
+            json_str = json_match.group(0)
+            parsed = json.loads(json_str)
+            system_boundary = parsed.get("systemBoundary") or {}
+            if not isinstance(system_boundary, dict):
+                system_boundary = {"label": "System"}
+            if "label" not in system_boundary:
+                system_boundary["label"] = "System"
+            actors = parsed.get("actors") or []
+            use_cases = parsed.get("useCases") or []
+            relationships = parsed.get("relationships") or []
+            if not isinstance(actors, list):
+                actors = []
+            if not isinstance(use_cases, list):
+                use_cases = []
+            if not isinstance(relationships, list):
+                relationships = []
+
+            actor_ids = {a.get("id") or a.get("label") for a in actors if isinstance(a, dict)}
+            for a in actors:
+                if isinstance(a, dict):
+                    if "id" not in a and a.get("label"):
+                        a["id"] = a["label"]
+                        actor_ids.add(a["label"])
+                    if a.get("placement") not in ("left", "right"):
+                        a["placement"] = "left"
+            use_case_ids = {u.get("id") or u.get("label") for u in use_cases if isinstance(u, dict)}
+            for u in use_cases:
+                if isinstance(u, dict) and "id" not in u and u.get("label"):
+                    u["id"] = u["label"]
+                    use_case_ids.add(u["label"])
+            all_ids = actor_ids | use_case_ids
+
+            valid_rels = []
+            for r in relationships:
+                if not isinstance(r, dict):
+                    continue
+                src = r.get("source")
+                tgt = r.get("target")
+                if src not in all_ids or tgt not in all_ids:
+                    continue
+                rel_type = (r.get("relationship") or "communication").lower()
+                if rel_type not in ("communication", "include", "extend", "generalization"):
+                    rel_type = "communication"
+                r["relationship"] = rel_type
+                valid_rels.append(r)
+
+            # Cap: each use case at most 3 relationships (as source or target). Prefer communication > include > extend > generalization.
+            _priority = {"communication": 0, "include": 1, "extend": 2, "generalization": 3}
+
+            def use_case_degree(uc_id: str, rels: list) -> int:
+                return sum(1 for x in rels if x.get("source") == uc_id or x.get("target") == uc_id)
+
+            def rels_for_use_case(uc_id: str, rels: list) -> list:
+                return [r for r in rels if r.get("source") == uc_id or r.get("target") == uc_id]
+
+            kept = set(id(r) for r in valid_rels)
+            for uc_id in use_case_ids:
+                if use_case_degree(uc_id, valid_rels) <= 3:
+                    continue
+                ucr = rels_for_use_case(uc_id, valid_rels)
+                ucr_sorted = sorted(ucr, key=lambda r: _priority.get(r.get("relationship"), 0))
+                for r in ucr_sorted[3:]:
+                    kept.discard(id(r))
+            valid_rels = [r for r in valid_rels if id(r) in kept]
+
+            # Ensure no orphan: every actor and use case in at least one relationship
+            connected = set()
+            for r in valid_rels:
+                if isinstance(r, dict):
+                    connected.add(r.get("source"))
+                    connected.add(r.get("target"))
+            for aid in all_ids:
+                if aid in connected:
+                    continue
+                for r in relationships:
+                    if not isinstance(r, dict):
+                        continue
+                    src, tgt = r.get("source"), r.get("target")
+                    if src not in all_ids or tgt not in all_ids or (src != aid and tgt != aid):
+                        continue
+                    rel_type = (r.get("relationship") or "communication").lower()
+                    if rel_type not in ("communication", "include", "extend", "generalization"):
+                        rel_type = "communication"
+                    valid_rels.append({"source": src, "target": tgt, "relationship": rel_type})
+                    connected.add(aid)
+                    break
+
+            return {
+                "systemBoundary": system_boundary,
+                "actors": actors,
+                "useCases": use_cases,
+                "relationships": valid_rels,
+            }
+        except json.JSONDecodeError as e:
+            print(f"[LLMService] Use case diagram JSON parse error: {e}")
+            return {"error": str(e), "systemBoundary": {}, "actors": [], "useCases": [], "relationships": []}
+        except Exception as e:
+            print(f"[LLMService] Error generating use case diagram: {e}")
+            return {"error": str(e), "systemBoundary": {}, "actors": [], "useCases": [], "relationships": []}
+
     def generate_parameter_descriptions_batch(
         self,
         parameters: List[Dict[str, Any]],

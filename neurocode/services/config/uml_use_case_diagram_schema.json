@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "required": ["systemBoundary", "actors", "useCases", "relationships"],
+  "properties": {
+    "systemBoundary": {
+      "type": "object",
+      "required": ["label"],
+      "properties": {
+        "label": { "type": "string", "description": "Label shown on the system boundary box (e.g. System, Application Name)." }
+      }
+    },
+    "actors": {
+      "type": "array",
+      "description": "Actors outside the system boundary. Left = primary (initiate); right = secondary/systems.",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "placement"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique id; must match source/target in relationships where the participant is an actor." },
+          "label": { "type": "string", "description": "Display name (e.g. User, Admin, Database)." },
+          "placement": {
+            "type": "string",
+            "enum": ["left", "right"],
+            "description": "left = primary actors who initiate use cases (customer, student, admin, user). right = secondary/system actors (database, payment gateway, external API, mail service)."
+          }
+        }
+      }
+    },
+    "useCases": {
+      "type": "array",
+      "description": "Use cases (ellipses) inside the system boundary. Each has a unique id.",
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique id; must match source/target in relationships where the participant is a use case." },
+          "label": { "type": "string", "description": "Short action description (e.g. Login, View Report, Export PDF)." }
+        }
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "description": "Links between actors and use cases, or between use cases. source and target are actor or use case ids.",
+      "items": {
+        "type": "object",
+        "required": ["source", "target", "relationship"],
+        "properties": {
+          "source": { "type": "string", "description": "Actor or use case id (source node)." },
+          "target": { "type": "string", "description": "Actor or use case id (target node)." },
+          "relationship": {
+            "type": "string",
+            "enum": ["communication", "include", "extend", "generalization"],
+            "description": "communication = solid line (actor participates in use case, or optional link); include = dashed arrow with <<include>> (source includes target); extend = dashed arrow with <<extend>> (source extends target); generalization = hollow arrow (subtype points to supertype)."
+          }
+        }
+      }
+    }
+  }
+}
