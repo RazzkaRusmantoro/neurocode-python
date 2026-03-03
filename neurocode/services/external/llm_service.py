@@ -9,6 +9,38 @@ from typing import List, Dict, Any, Optional
 from anthropic import Anthropic
 
 
+def _repo_label_from_collection_name(collection_name: str) -> str:
+    """Collection name is org_org_repo_branch; return human-readable repo label (e.g. neurocode-python)."""
+    if not (collection_name or "").strip():
+        return "other"
+    parts = (collection_name or "").strip().split("_")
+    if len(parts) > 3:
+        slug = "_".join(parts[2:-1]).lower()
+    elif len(parts) >= 3:
+        slug = parts[2].lower()
+    else:
+        return collection_name
+    return slug.replace("_", "-")
+
+
+def _chunk_repo_label(chunk: Dict[str, Any], target_repo_name: str) -> str:
+    """Return repo label for a chunk: target repo name or derived from _collection for other repos."""
+    coll = chunk.get("_collection")
+    if not coll:
+        return target_repo_name or "repository"
+    return _repo_label_from_collection_name(coll)
+
+
+def _other_repos_instruction() -> str:
+    """Instruction to add to the system prompt when context includes chunks from other repos."""
+    return (
+        "\n\n**Cross-repository context:** Some code chunks above are from the **target repository** (the one being documented); "
+        "others are top-k relevant chunks from **other repositories** in the same organization. Use your judgment: "
+        "if information from other repos is relevant (e.g. callers, shared types, integration points), you may mention it in the doc or include it in the diagram. "
+        "If not relevant, ignore those chunks and focus on the target repo. You decide."
+    )
+
+
 def _enforce_max_connections_per_class(
     relationships: List[Dict[str, Any]], max_per_class: int = 3
 ) -> List[Dict[str, Any]]:
@@ -147,9 +179,10 @@ class LLMService:
             start_line = chunk.get("metadata", {}).get("start_line", 0)
             end_line = chunk.get("metadata", {}).get("end_line", 0)
             content = chunk.get("content", "")
-            
+            repo_label = _chunk_repo_label(chunk, repo_name)
             # Build detailed header with all metadata
             header = f"--- Code Chunk {i} ---\n"
+            header += f"Repository: {repo_label}\n"
             header += f"File: {file_path}\n"
             if class_name:
                 header += f"Class: {class_name}\n"
@@ -193,6 +226,7 @@ class LLMService:
 5. Ensure all arrays and objects are properly closed
 6. Do NOT truncate any content - if you're running out of tokens, prioritize completing the structure over adding more detail
 """
+        other_repos_note = _other_repos_instruction() if any(c.get("_collection") for c in context_chunks) else ""
         
         system_prompt = f"""You are a technical documentation expert specializing in API reference documentation similar to scikit-learn, NumPy, and other scientific Python libraries.
 
@@ -211,7 +245,7 @@ Your documentation should:
 - Explain the "why" behind important if statements, loops, and design decisions
 - Structure like API reference documentation with clear sections for classes, methods, parameters
 - **CRITICAL**: Always include subsections in your documentation structure - not every section needs subsections, but the overall documentation MUST have at least some subsections (e.g., section "1" with "1.1", "1.2", or section "2" with "2.1", "2.2", etc.)
-- Be precise and technical, not generic descriptions{schema_section}"""
+- Be precise and technical, not generic descriptions{schema_section}{other_repos_note}"""
         
         user_message = f"""Based on the following code from the {repo_name} repository, generate comprehensive, structured documentation that addresses this request:
 
@@ -557,7 +591,8 @@ Your documentation should:
             meta = chunk.get("metadata", {})
             file_path = meta.get("file_path", "unknown")
             content = chunk.get("content", "")
-            header = f"--- Code Chunk {i} ---\nFile: {file_path}\n---\n"
+            repo_label = _chunk_repo_label(chunk, repo_name)
+            header = f"--- Code Chunk {i} ---\nRepository: {repo_label}\nFile: {file_path}\n---\n"
             context_parts.append(header + content + "\n")
         context = "\n".join(context_parts)
 
@@ -580,6 +615,7 @@ Your documentation should:
 ```
 
 Return ONLY valid JSON matching this schema. No markdown code fence, no explanation. The root object must have "title", "description", and "sections" (array of objects with "id", "title", "description")."""
+        other_repos_note = _other_repos_instruction() if any(c.get("_collection") for c in context_chunks) else ""
 
         system_prompt = f"""You are an expert technical writer who produces System Architecture documentation from codebases. The goal is to explain the system like a flowchart in text: clear, step-by-step, and easy for developers to follow—without relying on code. Balance is critical: enough detail and depth to be useful, but not so much that the doc feels overwhelming or hard to read.
 
@@ -608,7 +644,7 @@ Return ONLY valid JSON matching this schema. No markdown code fence, no explanat
 **Style:**
 - Easy and detailed for developers. Factual and clear. No marketing language. No ### inside sections.
 - If something is inferred, say so briefly (e.g. "Likely used for caching").
-- Escape newlines in section description strings as \\n.{schema_section}"""
+- Escape newlines in section description strings as \\n.{schema_section}{other_repos_note}"""
 
         user_message = f"""Generate System Architecture documentation for the {repo_name} repository.
 
@@ -711,7 +747,8 @@ Return ONLY the JSON object with keys: title, description, sections (array of {{
             meta = chunk.get("metadata", {})
             file_path = meta.get("file_path", "unknown")
             content = chunk.get("content", "")
-            header = f"--- Code Chunk {i} ---\nFile: {file_path}\n---\n"
+            repo_label = _chunk_repo_label(chunk, repo_name)
+            header = f"--- Code Chunk {i} ---\nRepository: {repo_label}\nFile: {file_path}\n---\n"
             context_parts.append(header + content + "\n")
         context = "\n".join(context_parts)
 
@@ -725,6 +762,7 @@ Return ONLY the JSON object with keys: title, description, sections (array of {{
 ```
 
 Return ONLY valid JSON matching this schema. No markdown code fence, no explanation. The root object must have "guide" and "rules" (array of at least one rule)."""
+        other_repos_note = _other_repos_instruction() if any(c.get("_collection") for c in context_chunks) else ""
         instructions = extra_instructions or ""
         system_prompt = f"""You are an expert at writing AI-Agent documentation: structured .md files that explain a codebase or procedures for AI agents (e.g. Cursor, Claude). You output a bundle of one main guide and multiple rule/playbook files.
 
@@ -739,7 +777,7 @@ Return ONLY valid JSON matching this schema. No markdown code fence, no explanat
 **Rules:**
 - Each rule: name, description, optional role, optional prerequisites (array of strings), **body** (main markdown: sections, code blocks, steps, and short instructional prose—no tables), optional input, optional output.
 
-Use the code context below to ground the guide and rules in the actual repository. Be specific and reference real paths, modules, and patterns. Use headers (e.g. ##), code blocks, and lists only—no tables.{schema_section}"""
+Use the code context below to ground the guide and rules in the actual repository. Be specific and reference real paths, modules, and patterns. Use headers (e.g. ##), code blocks, and lists only—no tables.{schema_section}{other_repos_note}"""
 
         user_message = f"""Generate an AI-Agent documentation bundle for the {repo_name} repository.
 
@@ -820,7 +858,8 @@ Return ONLY the JSON object (no ```json wrapper, no explanation)."""
             start_line = meta.get("start_line", 0)
             end_line = meta.get("end_line", 0)
             content = chunk.get("content", "")
-            header = f"--- Code Chunk {i} ---\nFile: {file_path}\n"
+            repo_label = _chunk_repo_label(chunk, repo_name)
+            header = f"--- Code Chunk {i} ---\nRepository: {repo_label}\nFile: {file_path}\n"
             if class_name:
                 header += f"Class: {class_name}\n"
             if function_name:
@@ -844,6 +883,7 @@ Return ONLY the JSON object (no ```json wrapper, no explanation)."""
 - For association, aggregation, and composition: ALWAYS include sourceMultiplicity and targetMultiplicity (e.g. "1", "0..1", "1..*", "*"). Infer from code when possible; otherwise use sensible defaults like "1" and "*".
 - Use only the relationship types in the schema. Use only visibility + - # ~ for attributes and methods.
 - Prefer inferring real classes, attributes, and methods from the code; only add minimal placeholder content when the code does not specify."""
+        other_repos_note = _other_repos_instruction() if any(c.get("_collection") for c in context_chunks) else ""
 
         system_prompt = f"""You are an expert at producing clear, concise UML class diagrams from code. Use your judgment to design the best possible diagram.
 
@@ -854,7 +894,7 @@ Return ONLY the JSON object (no ```json wrapper, no explanation)."""
 - **Capture members from the code:** For each class, include as many attributes and methods as you can get specifically from the code—prioritize real members that appear in the provided context. Do not add an excessive number; keep nodes readable (e.g. avoid huge lists). If the code has many members, choose the most representative ones. If the code has few or none for a class, use guesswork to add plausible attributes and methods (e.g. "config", "fetch", "process") so each class has at least one attribute and one method and remains meaningful.
 - **Descriptions (stored, not displayed on the diagram):** For each class, include an "explanation" field: one brief sentence describing what the class represents or does in the system. For each attribute and each method, include an optional "description" field: one brief sentence (e.g. what the attribute holds, or what the method does). Infer from the code when possible; use short, clear prose. These are for documentation/tooltips later.
 
-Your task is to output a single JSON object with "classes" and "relationships" that represents your best, clearest version of the structure inferred from the provided code.{schema_section}
+Your task is to output a single JSON object with "classes" and "relationships" that represents your best, clearest version of the structure inferred from the provided code.{schema_section}{other_repos_note}
 
 Output ONLY the JSON object, nothing else."""
 
@@ -968,7 +1008,8 @@ Produce your best UML class diagram: clear, conceptual (e.g. GitHub, Visual Tree
             start_line = meta.get("start_line", 0)
             end_line = meta.get("end_line", 0)
             content = chunk.get("content", "")
-            header = f"--- Code Chunk {i} ---\nFile: {file_path}\n"
+            repo_label = _chunk_repo_label(chunk, repo_name)
+            header = f"--- Code Chunk {i} ---\nRepository: {repo_label}\nFile: {file_path}\n"
             if class_name:
                 header += f"Class: {class_name}\n"
             if function_name:
@@ -997,6 +1038,7 @@ Produce your best UML class diagram: clear, conceptual (e.g. GitHub, Visual Tree
 - FRAGMENTS: Use if code has loops/conditionals. Not at index 0.
 - DESTROY: At least one lifeline with isDestroyed: true.
 - Optionally include "steps" with title and messageIndices."""
+        other_repos_note = _other_repos_instruction() if any(c.get("_collection") for c in context_chunks) else ""
 
         system_prompt = f"""You are an expert at producing clean, simple UML sequence diagrams.
 
@@ -1022,7 +1064,7 @@ Produce your best UML class diagram: clear, conceptual (e.g. GitHub, Visual Tree
 
 5. DESTROY: At least one lifeline with isDestroyed: true.
 
-6. Each message = one row. Strict chronological order.{schema_section}
+6. Each message = one row. Strict chronological order.{schema_section}{other_repos_note}
 
 Output ONLY the JSON object, nothing else."""
 
@@ -1187,7 +1229,8 @@ Output ONLY the JSON object."""
             start_line = meta.get("start_line", 0)
             end_line = meta.get("end_line", 0)
             content = chunk.get("content", "")
-            header = f"--- Code Chunk {i} ---\nFile: {file_path}\n"
+            repo_label = _chunk_repo_label(chunk, repo_name)
+            header = f"--- Code Chunk {i} ---\nRepository: {repo_label}\nFile: {file_path}\n"
             if class_name:
                 header += f"Class: {class_name}\n"
             if function_name:
@@ -1212,6 +1255,7 @@ Output ONLY the JSON object."""
 - MAX 3 ASSOCIATIONS PER USE CASE: Each use case must be the source or target of at most 3 relationships total. Prefer fewer, clearer links. If you need more, create a separate use case diagram instead.
 - communication: actor-use case or use case-use case. include/extend/generalization as in schema.
 - Keep diagram simple: 2-5 actors, 3-8 use cases. Every actor and use case in at least one relationship."""
+        other_repos_note = _other_repos_instruction() if any(c.get("_collection") for c in context_chunks) else ""
 
         system_prompt = f"""You are an expert at producing clear UML use case diagrams from code and requirements.
 
@@ -1222,7 +1266,7 @@ Output ONLY the JSON object."""
 - Use cases inside the boundary. Every actor and every use case must appear in at least one relationship.
 - Use communication for actor-use case links; <<include>>/<<extend>>/generalization where appropriate.
 
-Your task is to output a single JSON object with systemBoundary (label), actors, useCases, and relationships.{schema_section}
+Your task is to output a single JSON object with systemBoundary (label), actors, useCases, and relationships.{schema_section}{other_repos_note}
 
 Output ONLY the JSON object, nothing else."""
 
