@@ -446,7 +446,473 @@ class MongoDBService:
             "similar_references": [],
             "message": "Similarity search not yet implemented"
         }
-    
+
+    def upsert_repository_branch_commits(
+        self,
+        organization_id: str,
+        repository_id: str,
+        branch_latest_commits: Dict[str, str],
+        *,
+        repo_full_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Store or update the latest commit SHA per branch for a repository.
+        Used when adding a repo or when syncing; keyed by organization_id + repository_id.
+        branch_latest_commits: e.g. {"main": "abc123", "develop": "def456"}.
+        """
+        try:
+            try:
+                org_obj_id = ObjectId(organization_id)
+                repo_obj_id = ObjectId(repository_id)
+            except (InvalidId, TypeError) as e:
+                return {"success": False, "error": f"Invalid ObjectId format: {str(e)}"}
+            now = datetime.utcnow()
+            document = {
+                "organizationId": org_obj_id,
+                "repositoryId": repo_obj_id,
+                "branchLatestCommits": branch_latest_commits,
+                "updatedAt": now,
+            }
+            if repo_full_name:
+                document["repoFullName"] = repo_full_name
+            self.db.repository_branch_commits.update_one(
+                {
+                    "organizationId": org_obj_id,
+                    "repositoryId": repo_obj_id,
+                },
+                {"$set": document},
+                upsert=True,
+            )
+            return {
+                "success": True,
+                "branch_count": len(branch_latest_commits),
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def list_all_repository_branch_commits(self) -> Dict[str, Any]:
+        """
+        List all repos we track (for the sync job). Returns documents from
+        repository_branch_commits with organizationId, repositoryId, repoFullName,
+        branchLatestCommits, updatedAt (ObjectIds as strings).
+        """
+        try:
+            cursor = self.db.repository_branch_commits.find({})
+            docs = []
+            for doc in cursor:
+                doc["_id"] = str(doc["_id"])
+                doc["organizationId"] = str(doc["organizationId"])
+                doc["repositoryId"] = str(doc["repositoryId"])
+                if doc.get("updatedAt"):
+                    doc["updatedAt"] = doc["updatedAt"]
+                docs.append(doc)
+            return {"success": True, "repos": docs}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_github_token_for_repo(
+        self,
+        organization_id: str,
+        repository_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Resolve a GitHub token for a repo using the same logic as Next.js:
+        1. Try the user who added the repo (repository.addedBy -> user.github.accessToken).
+        2. Fallback to the organization owner (organization.ownerId -> user.github.accessToken).
+        Requires the same MongoDB to have users, repositories, and organizations collections.
+        Returns { "success": True, "token": "..." } or { "success": False, "error": "..." }.
+        """
+        try:
+            repo_obj_id = ObjectId(repository_id)
+            org_obj_id = ObjectId(organization_id)
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": f"Invalid id: {str(e)}"}
+
+        def _token_from_user(user_doc: Optional[Dict[str, Any]]) -> Optional[str]:
+            if not user_doc:
+                return None
+            github = user_doc.get("github") or {}
+            if github.get("status") != "active":
+                return None
+            token = github.get("accessToken")
+            if token and isinstance(token, str) and token.strip():
+                return token.strip()
+            return None
+
+        try:
+            # 1. Repository -> addedBy
+            repo = self.db.repositories.find_one({"_id": repo_obj_id})
+            if repo and repo.get("addedBy"):
+                added_by_id = repo["addedBy"]
+                user = self.db.users.find_one({"_id": added_by_id})
+                token = _token_from_user(user)
+                if token:
+                    return {"success": True, "token": token, "source": "addedBy"}
+
+            # 2. Organization -> ownerId
+            org = self.db.organizations.find_one({"_id": org_obj_id})
+            if org and org.get("ownerId"):
+                owner_id = org["ownerId"]
+                user = self.db.users.find_one({"_id": owner_id})
+                token = _token_from_user(user)
+                if token:
+                    return {"success": True, "token": token, "source": "owner"}
+
+            return {"success": False, "error": "No GitHub token found for this repo"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_repository_branch_commits(
+        self,
+        organization_id: str,
+        repository_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Get the stored branch -> latest commit mapping for a repository.
+        Returns { "success": True, "branchLatestCommits": { "main": "sha", ... } } or error.
+        """
+        try:
+            try:
+                org_obj_id = ObjectId(organization_id)
+                repo_obj_id = ObjectId(repository_id)
+            except (InvalidId, TypeError) as e:
+                return {"success": False, "error": f"Invalid ObjectId format: {str(e)}"}
+            doc = self.db.repository_branch_commits.find_one(
+                {"organizationId": org_obj_id, "repositoryId": repo_obj_id}
+            )
+            if not doc:
+                return {"success": True, "branchLatestCommits": {}}
+            return {
+                "success": True,
+                "branchLatestCommits": doc.get("branchLatestCommits", {}),
+                "updatedAt": doc.get("updatedAt"),
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def list_documentations_by_repository_and_branch(
+        self,
+        repository_id: str,
+        branch: str,
+    ) -> Dict[str, Any]:
+        """
+        List all textual documentation records for a repository and branch.
+        Returns list with _id, filePaths, s3Key, title, prompt, needsSync, isUpdating, etc.
+        """
+        try:
+            repo_obj_id = ObjectId(repository_id)
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": f"Invalid repository id: {str(e)}"}
+        try:
+            cursor = self.db.documentations.find(
+                {"repositoryId": repo_obj_id, "branch": branch}
+            )
+            docs = []
+            for doc in cursor:
+                doc["_id"] = str(doc["_id"])
+                doc["organizationId"] = str(doc["organizationId"])
+                doc["repositoryId"] = str(doc["repositoryId"])
+                docs.append(doc)
+            return {"success": True, "documentations": docs}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def list_uml_diagrams_by_repository_and_branch(
+        self,
+        repository_id: str,
+        branch: str,
+    ) -> Dict[str, Any]:
+        """
+        List all UML diagram records for a repository and branch.
+        Returns list with _id, filePaths, diagramData, type, prompt, needsSync, isUpdating, etc.
+        """
+        try:
+            repo_obj_id = ObjectId(repository_id)
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": f"Invalid repository id: {str(e)}"}
+        try:
+            cursor = self.db.uml_diagrams.find(
+                {"repositoryId": repo_obj_id, "branch": branch}
+            )
+            docs = []
+            for doc in cursor:
+                doc["_id"] = str(doc["_id"])
+                doc["organizationId"] = str(doc["organizationId"])
+                doc["repositoryId"] = str(doc["repositoryId"])
+                docs.append(doc)
+            return {"success": True, "uml_diagrams": docs}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def set_documentations_needs_sync(
+        self,
+        documentation_ids: List[str],
+    ) -> Dict[str, Any]:
+        """
+        Set needsSync=true and updatedAt for the given documentation _ids.
+        Used by the sync job after detecting changed files that affect these docs.
+        """
+        if not documentation_ids:
+            return {"success": True, "modified_count": 0}
+        try:
+            obj_ids = [ObjectId(did) for did in documentation_ids]
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": f"Invalid id: {str(e)}"}
+        try:
+            now = datetime.utcnow()
+            result = self.db.documentations.update_many(
+                {"_id": {"$in": obj_ids}},
+                {"$set": {"needsSync": True, "updatedAt": now}},
+            )
+            return {"success": True, "modified_count": result.modified_count}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def set_uml_diagrams_needs_sync(
+        self,
+        diagram_ids: List[str],
+    ) -> Dict[str, Any]:
+        """
+        Set needsSync=true and updatedAt for the given UML diagram _ids.
+        Used by the sync job after detecting changed files that affect these diagrams.
+        """
+        if not diagram_ids:
+            return {"success": True, "modified_count": 0}
+        try:
+            obj_ids = [ObjectId(did) for did in diagram_ids]
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": f"Invalid id: {str(e)}"}
+        try:
+            now = datetime.utcnow()
+            result = self.db.uml_diagrams.update_many(
+                {"_id": {"$in": obj_ids}},
+                {"$set": {"needsSync": True, "updatedAt": now}},
+            )
+            return {"success": True, "modified_count": result.modified_count}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def set_documentation_is_updating(
+        self,
+        documentation_id: str,
+        is_updating: bool,
+    ) -> Dict[str, Any]:
+        """
+        Set isUpdating (and updatedAt) for a single documentation. Use when starting or
+        finishing regeneration so the UI can show "Updating..." and avoid double-sync.
+        """
+        try:
+            obj_id = ObjectId(documentation_id)
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": f"Invalid id: {str(e)}"}
+        try:
+            now = datetime.utcnow()
+            self.db.documentations.update_one(
+                {"_id": obj_id},
+                {"$set": {"isUpdating": is_updating, "updatedAt": now}},
+            )
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def set_uml_diagram_is_updating(
+        self,
+        diagram_id: str,
+        is_updating: bool,
+    ) -> Dict[str, Any]:
+        """
+        Set isUpdating (and updatedAt) for a single UML diagram. Use when starting or
+        finishing regeneration.
+        """
+        try:
+            obj_id = ObjectId(diagram_id)
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": f"Invalid id: {str(e)}"}
+        try:
+            now = datetime.utcnow()
+            self.db.uml_diagrams.update_one(
+                {"_id": obj_id},
+                {"$set": {"isUpdating": is_updating, "updatedAt": now}},
+            )
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_documentation_by_id(self, documentation_id: str) -> Dict[str, Any]:
+        """
+        Get a single documentation record by _id. Used by regeneration.
+        Returns doc with _id, organizationId, repositoryId, branch, s3Key, title, prompt,
+        filePaths, documentationType, needsSync, isUpdating as strings where needed.
+        """
+        try:
+            obj_id = ObjectId(documentation_id)
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": f"Invalid id: {str(e)}"}
+        try:
+            doc = self.db.documentations.find_one({"_id": obj_id})
+            if not doc:
+                return {"success": False, "error": "Documentation not found"}
+            doc["_id"] = str(doc["_id"])
+            doc["organizationId"] = str(doc["organizationId"])
+            doc["repositoryId"] = str(doc["repositoryId"])
+            return {"success": True, "documentation": doc}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_organization_and_repo_for_collection(
+        self,
+        organization_id: str,
+        repository_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Get organization and repository names for building vector collection name
+        and repo_name for LLM. Returns organization_name, organization_short_id,
+        repository_name, repo_full_name (from repo url if GitHub).
+        """
+        try:
+            org_obj_id = ObjectId(organization_id)
+            repo_obj_id = ObjectId(repository_id)
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": f"Invalid id: {str(e)}"}
+        try:
+            org = self.db.organizations.find_one({"_id": org_obj_id})
+            repo = self.db.repositories.find_one({"_id": repo_obj_id})
+            if not org:
+                return {"success": False, "error": "Organization not found"}
+            if not repo:
+                return {"success": False, "error": "Repository not found"}
+            org_name = (org.get("name") or "").strip() or org.get("shortId", "")
+            org_short_id = (org.get("shortId") or "").strip()
+            repo_name = (repo.get("name") or repo.get("urlName") or "").strip()
+            repo_full_name = ""
+            url = (repo.get("url") or "").strip()
+            if url and "github.com" in url:
+                try:
+                    from urllib.parse import urlparse
+                    path = urlparse(url).path.strip("/")
+                    parts = path.split("/")
+                    if len(parts) >= 2:
+                        repo_full_name = f"{parts[0]}/{parts[1]}"
+                except Exception:
+                    pass
+            if not repo_full_name:
+                repo_full_name = repo_name
+            return {
+                "success": True,
+                "organization_name": org_name,
+                "organization_short_id": org_short_id,
+                "repository_name": repo_name,
+                "repo_full_name": repo_full_name,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def clear_documentation_sync_flags(
+        self,
+        documentation_id: str,
+        file_paths: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Set needsSync=false, isUpdating=false, and updatedAt for a documentation.
+        Optionally update filePaths (e.g. after regeneration). Call after regeneration completes.
+        """
+        try:
+            obj_id = ObjectId(documentation_id)
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": f"Invalid id: {str(e)}"}
+        try:
+            now = datetime.utcnow()
+            update = {"needsSync": False, "isUpdating": False, "updatedAt": now}
+            if file_paths is not None:
+                update["filePaths"] = file_paths
+            result = self.db.documentations.update_one(
+                {"_id": obj_id},
+                {"$set": update},
+            )
+            if result.matched_count == 0:
+                return {"success": False, "error": "Documentation not found"}
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def clear_uml_diagram_sync_flags(
+        self,
+        diagram_id: str,
+        diagram_data: Optional[Dict[str, Any]] = None,
+        file_paths: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Set needsSync=false, isUpdating=false, and updatedAt for a UML diagram.
+        Optionally update diagramData and filePaths after regeneration.
+        """
+        try:
+            obj_id = ObjectId(diagram_id)
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": f"Invalid id: {str(e)}"}
+        try:
+            now = datetime.utcnow()
+            update = {"needsSync": False, "isUpdating": False, "updatedAt": now}
+            if diagram_data is not None:
+                update["diagramData"] = diagram_data
+            if file_paths is not None:
+                update["filePaths"] = file_paths
+            result = self.db.uml_diagrams.update_one(
+                {"_id": obj_id},
+                {"$set": update},
+            )
+            if result.matched_count == 0:
+                return {"success": False, "error": "Diagram not found"}
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def insert_documentation(
+        self,
+        organization_id: str,
+        repository_id: str,
+        branch: str,
+        s3_key: str,
+        title: str,
+        file_paths: List[str],
+        *,
+        documentation_type: Optional[str] = None,
+        prompt: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Insert a textual documentation record (same idea as UML: filePaths, needsSync, isUpdating).
+        Used so the worker can find docs by repo+branch and check file path overlap.
+        """
+        try:
+            try:
+                org_obj_id = ObjectId(organization_id)
+                repo_obj_id = ObjectId(repository_id)
+            except (InvalidId, TypeError) as e:
+                return {"success": False, "error": f"Invalid ObjectId format: {str(e)}"}
+            now = datetime.utcnow()
+            document = {
+                "organizationId": org_obj_id,
+                "repositoryId": repo_obj_id,
+                "branch": branch,
+                "s3Key": s3_key,
+                "title": title,
+                "filePaths": file_paths,
+                "needsSync": False,
+                "isUpdating": False,
+                "createdAt": now,
+                "updatedAt": now,
+            }
+            if documentation_type:
+                document["documentationType"] = documentation_type
+            if prompt:
+                document["prompt"] = prompt
+            result = self.db.documentations.insert_one(document)
+            return {
+                "success": True,
+                "documentation_id": str(result.inserted_id),
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def insert_uml_diagram(
         self,
         organization_id: str,
@@ -457,6 +923,8 @@ class MongoDBService:
         prompt: str,
         diagram_data: Dict[str, Any],
         s3_key: Optional[str] = None,
+        file_paths: Optional[List[str]] = None,
+        branch: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Insert a new UML diagram into uml_diagrams collection.
@@ -470,6 +938,8 @@ class MongoDBService:
             prompt: User prompt used to generate the diagram
             diagram_data: Full diagram JSON (classes, relationships, etc.)
             s3_key: Optional S3 key for backup
+            file_paths: Optional list of file paths from chunks used in generation (for sync tracking)
+            branch: Branch this diagram was generated for (for worker repo+branch filtering)
 
         Returns:
             Dictionary with success status and diagram _id
@@ -490,11 +960,17 @@ class MongoDBService:
                 "slug": slug,
                 "prompt": prompt,
                 "diagramData": diagram_data,
+                "needsSync": False,
+                "isUpdating": False,
                 "updatedAt": now,
                 "createdAt": now,
             }
             if s3_key:
                 document["s3Key"] = s3_key
+            if file_paths is not None:
+                document["filePaths"] = file_paths
+            if branch is not None:
+                document["branch"] = branch
 
             result = self.db.uml_diagrams.insert_one(document)
             return {

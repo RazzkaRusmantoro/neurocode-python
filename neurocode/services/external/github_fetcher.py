@@ -92,7 +92,93 @@ class GitHubFetcher:
         except Exception as e:
             print(f"[GitHubFetcher] get_default_branch failed: {e}")
         return None
-    
+
+    async def list_branches_with_latest_commit(
+        self,
+        repo_full_name: str,
+        access_token: str,
+        *,
+        max_branches: int = 500,
+    ) -> Dict[str, str]:
+        """
+        List all branches and their latest commit SHA for a repository.
+        Returns a mapping branch_name -> commit_sha (e.g. {"main": "abc123", "develop": "def456"}).
+        """
+        out: Dict[str, str] = {}
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                page = 1
+                per_page = 100
+                while len(out) < max_branches:
+                    response = await client.get(
+                        f"https://api.github.com/repos/{repo_full_name}/branches",
+                        headers={
+                            "Authorization": f"token {access_token}",
+                            "Accept": "application/vnd.github.v3+json",
+                        },
+                        params={"per_page": per_page, "page": page},
+                    )
+                    if response.status_code != 200:
+                        break
+                    data = response.json()
+                    if not data:
+                        break
+                    for b in data:
+                        name = b.get("name")
+                        sha = (b.get("commit") or {}).get("sha")
+                        if name and sha:
+                            out[name] = sha
+                    if len(data) < per_page:
+                        break
+                    page += 1
+        except Exception as e:
+            print(f"[GitHubFetcher] list_branches_with_latest_commit failed: {e}")
+        return out
+
+    async def get_changed_file_paths(
+        self,
+        repo_full_name: str,
+        access_token: str,
+        base_sha: str,
+        head_sha: str,
+    ) -> List[str]:
+        """
+        Get all file paths that were changed, added, removed, or renamed between two commits.
+        Uses GitHub Compare API (base..head). Covers multiple commits in the range.
+        Returns a list of unique paths (includes both old and new path for renames).
+        """
+        out: List[str] = []
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Compare API: base...head (three dots = merge base; two dots = direct diff)
+                # We want all files in the range base..head
+                url = f"https://api.github.com/repos/{repo_full_name}/compare/{base_sha}...{head_sha}"
+                response = await client.get(
+                    url,
+                    headers={
+                        "Authorization": f"token {access_token}",
+                        "Accept": "application/vnd.github.v3+json",
+                    },
+                )
+                if response.status_code != 200:
+                    return out
+                data = response.json()
+                files = data.get("files") or []
+                seen = set()
+                for f in files:
+                    filename = f.get("filename")
+                    if filename and filename not in seen:
+                        seen.add(filename)
+                        out.append(filename)
+                    # For renames, include previous path so docs referencing old path get synced
+                    prev = f.get("previous_filename")
+                    if prev and prev not in seen:
+                        seen.add(prev)
+                        out.append(prev)
+        except Exception as e:
+            print(f"[GitHubFetcher] get_changed_file_paths failed: {e}")
+        return out
+
     async def _get_branch_sha(
         self,
         client: httpx.AsyncClient,

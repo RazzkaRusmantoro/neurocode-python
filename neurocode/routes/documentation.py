@@ -330,7 +330,16 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
             )
         
         print(f"✓ Found {len(search_results)} relevant chunks")
-        
+
+        # Collect unique file paths from chunks used in generation (for sync/affected-files tracking)
+        _file_paths = sorted(
+            set(
+                (c.get("metadata") or {}).get("file_path", "").strip()
+                for c in search_results
+            )
+        )
+        file_paths = [p for p in _file_paths if p]
+
         # Step 7: Generate documentation (branch: AI-Agent custom vs standard)
         documentation = None
         code_reference_ids_from_llm = []
@@ -908,6 +917,7 @@ Description:"""
         doc_metadata = {
             "collection_name": collection_name,
             "chunks_used": len(search_results),
+            "file_paths": file_paths,
             "chunks": [
                 {
                     "file_path": chunk.get("metadata", {}).get("file_path", ""),
@@ -992,7 +1002,8 @@ Description:"""
                         "ai_agent_doc_kind": getattr(request, "ai_agent_doc_kind", None),
                     },
                     "documentation": documentation,
-                    "code_references": code_reference_ids
+                    "code_references": code_reference_ids,
+                    "file_paths": file_paths,
                 }
                 
                 documentation_json_str = json.dumps(documentation_json, indent=2)
@@ -1006,6 +1017,22 @@ Description:"""
                 if s3_result.get("success"):
                     print(f"✓ Documentation uploaded to S3: {s3_result['s3_key']}")
                     print(f"  Size: {s3_result['content_size']} bytes")
+                    # Store doc in MongoDB (same idea as UML: filePaths, needsSync, isUpdating)
+                    if mongodb_service and request.organization_id and request.repository_id:
+                        insert_doc = mongodb_service.insert_documentation(
+                            organization_id=request.organization_id,
+                            repository_id=request.repository_id,
+                            branch=branch,
+                            s3_key=s3_key,
+                            title=doc_title,
+                            file_paths=file_paths,
+                            documentation_type=getattr(request, "documentation_type", None),
+                            prompt=request.prompt,
+                        )
+                        if insert_doc.get("success"):
+                            print(f"✓ Documentation record saved to MongoDB (id: {insert_doc.get('documentation_id')})")
+                        else:
+                            print(f"⚠ MongoDB documentation insert failed: {insert_doc.get('error')}")
                 else:
                     print(f"⚠ S3 upload failed: {s3_result.get('error')}")
         else:
@@ -1026,7 +1053,8 @@ Description:"""
             "metadata": index_metadata,
             "saved_paths": doc_saved_paths,
             "chunks": doc_metadata["chunks"],
-            "code_reference_ids": code_reference_ids
+            "code_reference_ids": code_reference_ids,
+            "file_paths": file_paths,
         }
         
         if s3_result and s3_result.get("success"):
@@ -1217,6 +1245,15 @@ async def generate_uml(request: GenerateUmlRequest):
         )
     _log_rag(f"✓ Found {len(search_results)} relevant chunks")
 
+    # Collect unique file paths from chunks used in generation (for sync/affected-files tracking)
+    _uml_file_paths = sorted(
+        set(
+            (c.get("metadata") or {}).get("file_path", "").strip()
+            for c in search_results
+        )
+    )
+    uml_file_paths = [p for p in _uml_file_paths if p]
+
     if diagram_type not in ("class", "sequence", "use_case"):
         raise HTTPException(
             status_code=400,
@@ -1294,8 +1331,9 @@ async def generate_uml(request: GenerateUmlRequest):
             f"organizations/{request.organization_id}/"
             f"repositories/{request.repository_id}/uml/{branch.replace('/', '_')}/{slug}.json"
         )
+        payload = {**diagram_data, "file_paths": uml_file_paths}
         upload_result = s3_service.upload_documentation(
-            content=json.dumps(diagram_data),
+            content=json.dumps(payload),
             s3_key=s3_key,
             content_type="application/json",
         )
@@ -1319,6 +1357,8 @@ async def generate_uml(request: GenerateUmlRequest):
         prompt=request.prompt,
         diagram_data=diagram_data,
         s3_key=s3_key,
+        file_paths=uml_file_paths,
+        branch=branch,
     )
     if not insert_result.get("success"):
         raise HTTPException(

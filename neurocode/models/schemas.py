@@ -75,6 +75,14 @@ class QueueIndexRequest(BaseModel):
     repository_name: Optional[str] = None
 
 
+class UpdateRepoBranchCommitsRequest(BaseModel):
+    """Request model for storing latest commit per branch when adding/updating a repo"""
+    github_token: str
+    repo_full_name: str
+    organization_id: str
+    repository_id: str
+
+
 class AnalyzePullRequestRequest(BaseModel):
     """Request model for analyzing a pull request"""
     github_token: str
