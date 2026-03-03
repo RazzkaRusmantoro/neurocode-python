@@ -149,6 +149,44 @@ def _agent_bundle_to_documentation(bundle: AgentDocsBundle) -> Dict[str, Any]:
     }
 
 
+def _get_other_repo_chunks(
+    target_collection_name: str,
+    org_short_id: str,
+    query: str,
+    chunks_per_repo: int = 5,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch up to chunks_per_repo chunks from each other repo in the same org (collections
+    that exist and have chunks). Used for multi-repo RAG context.
+    """
+    if not vectorizer or not (org_short_id or "").strip():
+        return []
+    org_short_id = (org_short_id or "").strip()
+    try:
+        all_collections = vectorizer.vector_db.list_collections_by_org_short_id(org_short_id)
+    except Exception:
+        return []
+    other_collections = [c for c in all_collections if c != target_collection_name]
+    if not other_collections:
+        return []
+    extra: List[Dict[str, Any]] = []
+    for coll in other_collections:
+        try:
+            if vectorizer.vector_db.get_collection_count(coll) <= 0:
+                continue
+            results = vectorizer.search(
+                collection_name=coll,
+                query=query,
+                top_k=chunks_per_repo,
+            )
+            for r in results:
+                r["_collection"] = coll
+            extra.extend(results)
+        except Exception:
+            continue
+    return extra
+
+
 @router.post("/api/generate-documentation")
 async def generate_documentation(request: GenerateDocumentationRequest):
     """
@@ -316,7 +354,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         print(f"\n[Step 6/10] Searching vector DB for relevant chunks...")
         print(f"Query: {request.prompt}")
         
-        # Search vector DB for relevant chunks
+        # Search vector DB for relevant chunks (target repo)
         search_results = vectorizer.search(
             collection_name=collection_name,
             query=request.prompt,
@@ -329,7 +367,18 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
                 detail=f"No chunks found in collection '{collection_name}'"
             )
         
-        print(f"✓ Found {len(search_results)} relevant chunks")
+        # Multi-repo: add up to 5 chunks per other org repo (if they exist and have collections)
+        other_chunks = _get_other_repo_chunks(
+            target_collection_name=collection_name,
+            org_short_id=request.organization_short_id or "",
+            query=request.prompt,
+            chunks_per_repo=5,
+        )
+        if other_chunks:
+            search_results = search_results + other_chunks
+            print(f"✓ Found {len(search_results) - len(other_chunks)} from target repo + {len(other_chunks)} from other repos")
+        else:
+            print(f"✓ Found {len(search_results)} relevant chunks")
 
         # Collect unique file paths from chunks used in generation (for sync/affected-files tracking)
         _file_paths = sorted(

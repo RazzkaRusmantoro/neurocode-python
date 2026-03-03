@@ -15,7 +15,7 @@ from neurocode.config import (
 )
 from neurocode.services.index_pipeline import build_collection_name
 from neurocode.services.agent_docs_validation import validate_agent_docs_bundle
-from neurocode.routes.documentation import _agent_bundle_to_documentation
+from neurocode.routes.documentation import _agent_bundle_to_documentation, _get_other_repo_chunks
 
 
 def _file_paths_from_search_results(search_results: List[Dict[str, Any]]) -> List[str]:
@@ -81,6 +81,17 @@ async def regenerate_documentation(documentation_id: str) -> Dict[str, Any]:
         )
         if not search_results:
             return {"success": False, "error": f"No chunks in collection '{collection_name}'"}
+
+        # Multi-repo: add up to 5 chunks per other org repo (if they exist and have collections)
+        org_short_id = names_result.get("organization_short_id") or ""
+        other_chunks = _get_other_repo_chunks(
+            target_collection_name=collection_name,
+            org_short_id=org_short_id,
+            query=prompt,
+            chunks_per_repo=5,
+        )
+        if other_chunks:
+            search_results = search_results + other_chunks
 
         file_paths = _file_paths_from_search_results(search_results)
         doc_type = (doc.get("documentationType") or "").strip()
@@ -212,6 +223,17 @@ async def regenerate_uml_diagram(diagram_id: str) -> Dict[str, Any]:
         )
         if not search_results:
             return {"success": False, "error": f"No chunks in collection '{collection_name}'"}
+
+        # Multi-repo: add up to 5 chunks per other org repo (if they exist and have collections)
+        org_short_id = names_result.get("organization_short_id") or ""
+        other_chunks = _get_other_repo_chunks(
+            target_collection_name=collection_name,
+            org_short_id=org_short_id,
+            query=prompt,
+            chunks_per_repo=5,
+        )
+        if other_chunks:
+            search_results = search_results + other_chunks
 
         file_paths = _file_paths_from_search_results(search_results)
 
