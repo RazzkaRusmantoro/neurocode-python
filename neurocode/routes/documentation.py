@@ -27,6 +27,115 @@ from neurocode.models.agent_docs import AgentDocsBundle
 
 router = APIRouter()
 
+# Section titles (normalized) for which we do NOT generate a flowchart diagram
+ARCH_DIAGRAM_EXCLUDE = {
+    "deployment and runtime",
+    "deployment & runtime",
+    "design decisions and conventions",
+    "design decisions & conventions",
+    "external dependencies",
+    "data flow and communication",
+    "data flow & communication",
+    "overview",
+}
+
+# Section that gets a class diagram (same generation as UML class diagram) instead of flowchart
+ARCH_DIAGRAM_CLASS_SECTION = {"components"}
+
+
+def _normalize_section_title_for_diagram(title: str) -> str:
+    if not title:
+        return ""
+    return " ".join(title.lower().strip().split())
+
+
+def _should_generate_diagram_for_section(title: str) -> bool:
+    normalized = _normalize_section_title_for_diagram(title)
+    return normalized not in ARCH_DIAGRAM_EXCLUDE
+
+
+def _is_components_section(title: str) -> bool:
+    return _normalize_section_title_for_diagram(title) in ARCH_DIAGRAM_CLASS_SECTION
+
+
+def _enrich_architecture_diagrams(
+    documentation: Dict[str, Any],
+    llm_service,
+    context_chunks: Optional[List[Dict[str, Any]]] = None,
+    repo_name: Optional[str] = None,
+) -> None:
+    """Add a 'diagram' to each section/subsection. Components section gets class diagram (same as UML); others get flowchart. Done at doc generation time."""
+    sections = documentation.get("sections") or []
+    for section in sections:
+        title = section.get("title") or ""
+        if not _should_generate_diagram_for_section(title):
+            section["diagram"] = None
+            section["diagramType"] = None
+        elif _is_components_section(title) and context_chunks and repo_name:
+            try:
+                uml_result = llm_service.generate_uml_class_diagram(
+                    prompt="Generate a class diagram of the main components and their relationships.",
+                    context_chunks=context_chunks,
+                    repo_name=repo_name,
+                )
+                if uml_result.get("error"):
+                    print(f"[Documentation] Class diagram for Components failed: {uml_result.get('error')}")
+                    section["diagram"] = None
+                    section["diagramType"] = None
+                else:
+                    section["diagramType"] = "class"
+                    section["diagram"] = {
+                        "classes": uml_result.get("classes") or [],
+                        "relationships": uml_result.get("relationships") or [],
+                    }
+            except Exception as e:
+                print(f"[Documentation] Skipping class diagram for section '{title}': {e}")
+                section["diagram"] = None
+                section["diagramType"] = None
+        else:
+            try:
+                desc = section.get("description") or ""
+                diagram = llm_service.generate_section_flowchart(section_title=title, section_description=desc)
+                section["diagram"] = diagram
+                section["diagramType"] = "flowchart"
+            except Exception as e:
+                print(f"[Documentation] Skipping diagram for section '{title}': {e}")
+                section["diagram"] = None
+                section["diagramType"] = None
+        for subsection in section.get("subsections") or []:
+            sub_title = subsection.get("title") or ""
+            if not _should_generate_diagram_for_section(sub_title):
+                subsection["diagram"] = None
+                subsection["diagramType"] = None
+            elif _is_components_section(sub_title) and context_chunks and repo_name:
+                try:
+                    uml_result = llm_service.generate_uml_class_diagram(
+                        prompt="Generate a class diagram of the main components and their relationships.",
+                        context_chunks=context_chunks,
+                        repo_name=repo_name,
+                    )
+                    if uml_result.get("error"):
+                        subsection["diagram"] = None
+                        subsection["diagramType"] = None
+                    else:
+                        subsection["diagramType"] = "class"
+                        subsection["diagram"] = {
+                            "classes": uml_result.get("classes") or [],
+                            "relationships": uml_result.get("relationships") or [],
+                        }
+                except Exception as e:
+                    subsection["diagram"] = None
+                    subsection["diagramType"] = None
+            else:
+                try:
+                    sub_desc = subsection.get("description") or ""
+                    diagram = llm_service.generate_section_flowchart(section_title=sub_title, section_description=sub_desc)
+                    subsection["diagram"] = diagram
+                    subsection["diagramType"] = "flowchart"
+                except Exception as e:
+                    subsection["diagram"] = None
+                    subsection["diagramType"] = None
+
 
 def _agent_bundle_to_documentation(bundle: AgentDocsBundle) -> Dict[str, Any]:
     """
@@ -961,6 +1070,16 @@ Description:"""
             else:
                 print(f"\n[Step 8/10] Missing organization_id or repository_id, skipping MongoDB upsert")
         
+        # Enrich architecture doc: flowchart per section; Components section gets class diagram (same as UML)
+        if getattr(request, "documentation_type", None) == "architecture":
+            print(f"\n[Step 8b/10] Generating section diagrams (architecture: flowcharts + class diagram for Components)...")
+            _enrich_architecture_diagrams(
+                documentation,
+                llm_service,
+                context_chunks=search_results,
+                repo_name=request.repo_full_name,
+            )
+
         # Step 9: Save documentation locally (for backup/reference)
         print(f"\n[Step 9/10] Saving documentation to local storage...")
         doc_metadata = {

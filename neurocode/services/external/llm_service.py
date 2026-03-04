@@ -722,6 +722,78 @@ Return ONLY the JSON object with keys: title, description, sections (array of {{
             print(f"[LLMService] Error generating architecture documentation: {e}")
             raise
 
+    def generate_section_flowchart(
+        self,
+        section_title: str,
+        section_description: str,
+    ) -> Dict[str, Any]:
+        """
+        Generate a simple flowchart for an architecture doc section: nodes (id, label, description, role) and edges.
+        Returns { "nodes": [ {"id", "label", "description", "role"}, ... ], "edges": [...] }.
+        Used at documentation generation time only; frontend displays from stored data.
+        """
+        system_prompt = """You produce a minimal flowchart for a single section of system architecture documentation.
+Output ONLY valid JSON with no markdown fence. The root object must have:
+- "nodes": array of 2 to 6 objects. Each node has:
+  - "id": string (e.g. "0", "1")
+  - "label": short string (2–6 words), the step or concept
+  - "description": one or two sentences explaining what this step does in the context of the section (required)
+  - "role": one of "input" | "process" | "decision" | "output" — use "input" for entry/trigger, "process" for work, "decision" for branching logic, "output" for result/exit
+- "edges": array of objects with "source" and "target" (node ids). Form a simple flow; every node must be connected.
+
+Example: {"nodes":[{"id":"0","label":"Receive request","description":"The API receives the incoming request and parses the payload.","role":"input"},{"id":"1","label":"Validate","description":"Validation runs against the schema and returns errors if invalid.","role":"process"},{"id":"2","label":"Process","description":"The validated data is processed and the response is built.","role":"output"}],"edges":[{"source":"0","target":"1"},{"source":"1","target":"2"}]}."""
+
+        user_message = f"""Section title: {section_title}
+
+Section content (summary): {section_description[:2000]}
+
+Produce a simple flowchart (nodes + edges) that explains this section in 2–6 steps. For each node include a short "description" (1–2 sentences) and a "role" (input, process, decision, or output). Return only the JSON object."""
+
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=1536,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            text = (response.content[0].text if response.content else "").strip()
+            if text.startswith("```"):
+                text = re.sub(r"^```(?:json)?\s*", "", text)
+                text = re.sub(r"\s*```$", "", text)
+            parsed = json.loads(text)
+            nodes = parsed.get("nodes") or []
+            edges = parsed.get("edges") or []
+            if not nodes or len(nodes) > 8:
+                nodes = nodes[:8] if nodes else [{"id": "0", "label": section_title[:40], "description": "", "role": "process"}]
+            valid_roles = {"input", "process", "decision", "output"}
+            normalized = []
+            for i, n in enumerate(nodes):
+                role = (str(n.get("role") or "process").lower().strip())
+                if role not in valid_roles:
+                    role = "process"
+                normalized.append({
+                    "id": str(n.get("id", i)),
+                    "label": str(n.get("label", "")) or f"Step {i}",
+                    "description": str(n.get("description", "")).strip() or "",
+                    "role": role,
+                })
+            nodes = normalized
+            edge_ids = {n["id"] for n in nodes}
+            edges = [{"source": str(e.get("source")), "target": str(e.get("target"))} for e in edges if str(e.get("source")) in edge_ids and str(e.get("target")) in edge_ids]
+            return {"nodes": nodes, "edges": edges}
+        except (json.JSONDecodeError, IndexError, KeyError) as e:
+            print(f"[LLMService] Section flowchart parse error: {e}")
+            return {
+                "nodes": [{"id": "0", "label": section_title[:50] or "Section", "description": "", "role": "process"}],
+                "edges": [],
+            }
+        except Exception as e:
+            print(f"[LLMService] Error generating section flowchart: {e}")
+            return {
+                "nodes": [{"id": "0", "label": section_title[:50] or "Section", "description": "", "role": "process"}],
+                "edges": [],
+            }
+
     def generate_agent_docs_bundle(
         self,
         prompt: str,
