@@ -1303,10 +1303,10 @@ async def generate_uml(request: GenerateUmlRequest):
     )
     uml_file_paths = [p for p in _uml_file_paths if p]
 
-    if diagram_type not in ("class", "sequence", "use_case"):
+    if diagram_type not in ("class", "sequence", "use_case", "state"):
         raise HTTPException(
             status_code=400,
-            detail="diagram_type must be 'class', 'sequence', or 'use_case'.",
+            detail="diagram_type must be 'class', 'sequence', 'use_case', or 'state'.",
         )
 
     if diagram_type == "class":
@@ -1365,6 +1365,31 @@ async def generate_uml(request: GenerateUmlRequest):
             "actors": actors,
             "useCases": use_cases,
             "relationships": relationships,
+        }
+    elif diagram_type == "state":
+        _log_rag(f"\n[Step 7/7] Generating UML state diagram with Claude...")
+        uml_result = llm_service.generate_uml_state_diagram(
+            prompt=request.prompt,
+            context_chunks=search_results,
+            repo_name=request.repository_name or request.repo_full_name,
+        )
+        if uml_result.get("error"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"UML generation failed: {uml_result.get('error')}",
+            )
+        initial_states = uml_result.get("initialStates") or []
+        final_states = uml_result.get("finalStates") or []
+        states = uml_result.get("states") or []
+        composite_states = uml_result.get("compositeStates") or []
+        transitions = uml_result.get("transitions") or []
+        _log_rag(f"✓ Generated state diagram: {len(states)} states, {len(composite_states)} composites, {len(transitions)} transitions")
+        diagram_data = {
+            "initialStates": initial_states,
+            "finalStates": final_states,
+            "states": states,
+            "compositeStates": composite_states,
+            "transitions": transitions,
         }
 
     name = _uml_slug_from_prompt(request.prompt, diagram_type)

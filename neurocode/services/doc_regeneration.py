@@ -277,6 +277,21 @@ async def regenerate_uml_diagram(diagram_id: str) -> Dict[str, Any]:
                 "useCases": uml_result.get("useCases") or [],
                 "relationships": uml_result.get("relationships") or [],
             }
+        elif diagram_type == "state":
+            uml_result = llm_service.generate_uml_state_diagram(
+                prompt=prompt,
+                context_chunks=search_results,
+                repo_name=repo_name,
+            )
+            if uml_result.get("error"):
+                return {"success": False, "error": uml_result.get("error")}
+            diagram_data = {
+                "initialStates": uml_result.get("initialStates") or [],
+                "finalStates": uml_result.get("finalStates") or [],
+                "states": uml_result.get("states") or [],
+                "compositeStates": uml_result.get("compositeStates") or [],
+                "transitions": uml_result.get("transitions") or [],
+            }
         else:
             return {"success": False, "error": f"Unknown diagram type: {diagram_type}"}
 

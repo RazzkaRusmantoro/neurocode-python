@@ -1,0 +1,74 @@
+{
+  "type": "object",
+  "required": ["initialStates", "finalStates", "states", "transitions"],
+  "properties": {
+    "initialStates": {
+      "type": "array",
+      "description": "Exactly one initial state (filled circle). Flow always starts here.",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique id; must be used as source in exactly one transition to the first real state." }
+        }
+      }
+    },
+    "finalStates": {
+      "type": "array",
+      "description": "One or more final states (bullseye). Whenever a state can end, add a transition to one of these.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique id; use as target in transitions when flow terminates." }
+        }
+      }
+    },
+    "states": {
+      "type": "array",
+      "description": "Normal states (rounded rectangles). Each has an id and label.",
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique id; referenced in transitions and optionally in compositeStates.childIds." },
+          "label": { "type": "string", "description": "Display name (e.g. Pending, Validating, Executing)." }
+        }
+      }
+    },
+    "compositeStates": {
+      "type": "array",
+      "description": "Optional. At least one composite state when the flow has a logical grouping (e.g. Processing containing Validating and Executing). childIds list state ids that appear inside this composite.",
+      "items": {
+        "type": "object",
+        "required": ["id", "label"],
+        "properties": {
+          "id": { "type": "string", "description": "Unique id for the composite (not used as transition source/target; only for grouping)." },
+          "label": { "type": "string", "description": "Display name (e.g. Processing, Authentication)." },
+          "childIds": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Ids of states that are nested inside this composite. Each must appear in states."
+          }
+        }
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "description": "Directed transitions. Each state (and initial/final) must have at most 2 incoming and at most 2 outgoing transitions to keep the diagram clean. source: initial or state id; target: state or final id. Prefer the most important flows.",
+      "items": {
+        "type": "object",
+        "required": ["source", "target"],
+        "properties": {
+          "source": { "type": "string", "description": "Id of source node (initial state or state)." },
+          "target": { "type": "string", "description": "Id of target node (state or final state)." },
+          "label": { "type": "string", "description": "Event/trigger name shown on the arrow (e.g. start, submit, timeout, done)." },
+          "eventParameter": { "type": "string", "description": "Optional. Shown as event (eventParameter), e.g. submit (formData), timeout (30s)." }
+        }
+      }
+    }
+  }
+}
