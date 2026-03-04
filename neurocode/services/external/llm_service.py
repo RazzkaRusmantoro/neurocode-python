@@ -1403,6 +1403,238 @@ Produce a UML use case diagram. For each actor set placement: "left" for primary
             print(f"[LLMService] Error generating use case diagram: {e}")
             return {"error": str(e), "systemBoundary": {}, "actors": [], "useCases": [], "relationships": []}
 
+    def generate_uml_state_diagram(
+        self,
+        prompt: str,
+        context_chunks: List[Dict[str, Any]],
+        repo_name: str = "repository",
+    ) -> Dict[str, Any]:
+        """
+        Generate a UML state diagram as structured JSON from RAG context.
+        Returns initialStates (exactly one), finalStates (one or more), states, optional compositeStates, and transitions.
+        Transitions may have label and optional eventParameter (displayed as "event (eventParameter)").
+        """
+        schema_path = Path(__file__).parent.parent / "config" / "uml_state_diagram_schema.json"
+        schema_template = ""
+        if schema_path.exists():
+            try:
+                with open(schema_path, "r", encoding="utf-8") as f:
+                    schema_template = json.dumps(json.load(f), indent=2)
+            except Exception as e:
+                print(f"[LLMService] Warning: Could not load state diagram schema: {e}")
+
+        context_parts = []
+        for i, chunk in enumerate(context_chunks, 1):
+            meta = chunk.get("metadata", {})
+            file_path = meta.get("file_path", "unknown")
+            class_name = meta.get("class_name", "")
+            function_name = meta.get("function_name", "")
+            language = meta.get("language", "")
+            start_line = meta.get("start_line", 0)
+            end_line = meta.get("end_line", 0)
+            content = chunk.get("content", "")
+            repo_label = _chunk_repo_label(chunk, repo_name)
+            header = f"--- Code Chunk {i} ---\nRepository: {repo_label}\nFile: {file_path}\n"
+            if class_name:
+                header += f"Class: {class_name}\n"
+            if function_name:
+                header += f"Function/Method: {function_name}\n"
+            header += f"Language: {language}\nLines: {start_line}-{end_line}\n---\n"
+            context_parts.append(header + content + "\n")
+        context = "\n".join(context_parts)
+
+        schema_section = ""
+        if schema_template:
+            schema_section = f"""
+
+**REQUIRED JSON SCHEMA (you MUST follow this exactly):**
+```json
+{schema_template}
+```
+
+**CRITICAL:**
+- Return ONLY valid JSON. No markdown code blocks (no ```json), no explanations.
+- initialStates: exactly one object with id (e.g. {{"id": "initial"}}). Flow always starts here.
+- finalStates: give each terminating state its OWN final state node—do not funnel multiple states into a shared final. Use one final per distinct outcome (e.g. "final-success", "final-error", "final-cancelled"). Only share a final if two states truly end for the exact same reason with the same semantics.
+- states: normal states with id and label. Every state referenced in transitions (except initial/final) must be listed here.
+- compositeStates: use at least one when the flow has a logical subgroup (e.g. "Processing" containing "Validating" and "Executing"). childIds must be state ids from states.
+- transitions: source and target are ids (initial, a state, or a final). CRITICAL: Each state (and initial/final) must have at most 2 incoming and at most 2 outgoing transitions—keep the diagram clean. From initial there must be exactly one outgoing transition. Use label for the event name; use eventParameter when the event has a parameter (e.g. label "submit", eventParameter "formData" → displayed as "submit (formData)").
+- All transition source/target ids must exist in initialStates, finalStates, or states."""
+        other_repos_note = _other_repos_instruction() if any(c.get("_collection") for c in context_chunks) else ""
+
+        system_prompt = f"""You are an expert at producing clear UML state diagrams from code and requirements.
+
+**Design goals:**
+- One initial state (filled circle); one final state per distinct outcome (bullseye). Flow starts at initial and ends at finals.
+- Normal states are rounded rectangles. When a state can "end" (success, error, exit, cancel), give it its OWN dedicated final state node—never share a final state between two different source states.
+- Use at least one composite state when the flow has a natural grouping (e.g. a phase that contains sub-states).
+- Transitions: use "label" for the event/trigger; use "eventParameter" when it makes sense (e.g. submit (formData), timeout (30s), validate (input)). Keep the diagram clean: each state (and initial/final) must have at most 2 incoming and at most 2 outgoing transitions—prefer the most important flows only.
+
+Your task is to output a single JSON object with initialStates, finalStates, states, compositeStates (optional but prefer at least one when fitting), and transitions.{schema_section}{other_repos_note}
+
+Output ONLY the JSON object, nothing else."""
+
+        user_message = f"""Repository: {repo_name}
+
+User request for the diagram: {prompt}
+
+Code context:
+{context}
+
+Produce a UML state diagram. One initial state, one or more final states, states, optional compositeStates (use at least one when the flow has a subgroup), and transitions. For events with parameters use eventParameter so they display as "event (parameter)". Output ONLY the JSON object."""
+
+        def extract_json_from_text(text: str) -> str:
+            cleaned = text.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:].strip()
+            elif cleaned.startswith("```"):
+                cleaned = cleaned[3:].strip()
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+            return cleaned
+
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=8192,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            response_text = ""
+            if response.content and len(response.content) > 0:
+                response_text = response.content[0].text.strip()
+            cleaned = extract_json_from_text(response_text)
+            json_match = re.search(r"\{.*", cleaned, re.DOTALL)
+            if not json_match:
+                return {
+                    "error": "No JSON object in response",
+                    "initialStates": [],
+                    "finalStates": [],
+                    "states": [],
+                    "compositeStates": [],
+                    "transitions": [],
+                }
+            json_str = json_match.group(0)
+            parsed = json.loads(json_str)
+            initial_states = parsed.get("initialStates") or []
+            final_states = parsed.get("finalStates") or []
+            states = parsed.get("states") or []
+            composite_states = parsed.get("compositeStates") or []
+            transitions = parsed.get("transitions") or []
+            if not isinstance(initial_states, list):
+                initial_states = []
+            if not isinstance(final_states, list):
+                final_states = []
+            if not isinstance(states, list):
+                states = []
+            if not isinstance(composite_states, list):
+                composite_states = []
+            if not isinstance(transitions, list):
+                transitions = []
+
+            # Enforce exactly one initial
+            if len(initial_states) == 0:
+                initial_states = [{"id": "initial"}]
+            else:
+                initial_states = [initial_states[0]] if isinstance(initial_states[0], dict) else [{"id": "initial"}]
+            if not initial_states[0].get("id"):
+                initial_states[0]["id"] = "initial"
+
+            # At least one final
+            if len(final_states) == 0:
+                final_states = [{"id": "final"}]
+            for i, f in enumerate(final_states):
+                if not isinstance(f, dict):
+                    final_states[i] = {"id": f"final-{i}"}
+                elif not f.get("id"):
+                    f["id"] = f"final-{i}"
+
+            state_ids = {s.get("id") for s in states if isinstance(s, dict) and s.get("id")}
+            for s in states:
+                if isinstance(s, dict) and not s.get("id") and s.get("label"):
+                    s["id"] = s["label"]
+                    state_ids.add(s["label"])
+            initial_id = initial_states[0].get("id", "initial")
+            final_ids = {f.get("id") for f in final_states if isinstance(f, dict)}
+            all_valid_ids = {initial_id} | final_ids | state_ids
+
+            valid_transitions = []
+            for t in transitions:
+                if not isinstance(t, dict):
+                    continue
+                src = t.get("source")
+                tgt = t.get("target")
+                if src not in all_valid_ids or tgt not in all_valid_ids:
+                    continue
+                valid_transitions.append(t)
+
+            # Enforce max 2 outgoing transitions per state (keeps the diagram readable)
+            out_count: dict[str, int] = {}
+            capped_transitions = []
+            for t in valid_transitions:
+                src = t.get("source", "")
+                count = out_count.get(src, 0)
+                if count >= 2:
+                    continue
+                out_count[src] = count + 1
+                capped_transitions.append(t)
+
+            # Individualize final states: if more than one transition targets the same
+            # final state, create a unique copy of that final state for each extra source
+            # so every state gets its own dedicated terminal node.
+            final_id_set = {f.get("id") for f in final_states if isinstance(f, dict) and f.get("id")}
+            # Map final_id -> list of transition indices that point to it
+            final_incoming: dict[str, list[int]] = {}
+            for idx, t in enumerate(capped_transitions):
+                tgt = t.get("target", "")
+                if tgt in final_id_set:
+                    final_incoming.setdefault(tgt, []).append(idx)
+
+            individualized_finals: list[dict] = []
+            for f in final_states:
+                fid = f.get("id", "")
+                incomers = final_incoming.get(fid, [])
+                if len(incomers) <= 1:
+                    # Only one (or zero) incoming transitions — keep as-is
+                    individualized_finals.append(f)
+                else:
+                    # Give each incoming transition its own final state node
+                    for seq, trans_idx in enumerate(incomers):
+                        new_id = fid if seq == 0 else f"{fid}-{seq}"
+                        individualized_finals.append({"id": new_id})
+                        capped_transitions[trans_idx] = {
+                            **capped_transitions[trans_idx],
+                            "target": new_id,
+                        }
+
+            return {
+                "initialStates": initial_states,
+                "finalStates": individualized_finals,
+                "states": states,
+                "compositeStates": composite_states,
+                "transitions": capped_transitions,
+            }
+        except json.JSONDecodeError as e:
+            print(f"[LLMService] State diagram JSON parse error: {e}")
+            return {
+                "error": str(e),
+                "initialStates": [{"id": "initial"}],
+                "finalStates": [{"id": "final"}],
+                "states": [],
+                "compositeStates": [],
+                "transitions": [],
+            }
+        except Exception as e:
+            print(f"[LLMService] Error generating state diagram: {e}")
+            return {
+                "error": str(e),
+                "initialStates": [{"id": "initial"}],
+                "finalStates": [{"id": "final"}],
+                "states": [],
+                "compositeStates": [],
+                "transitions": [],
+            }
+
     def generate_parameter_descriptions_batch(
         self,
         parameters: List[Dict[str, Any]],
