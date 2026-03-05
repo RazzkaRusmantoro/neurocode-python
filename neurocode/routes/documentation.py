@@ -1288,10 +1288,49 @@ async def get_documentation(request: GetDocumentationRequest):
 
 def _uml_slug_from_prompt(prompt: str, diagram_type: str = "class") -> str:
     """Build a URL-safe slug from user prompt and diagram type."""
-    import re
     raw = (prompt or "").strip()[:60]
     slug = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-") or "diagram"
     return f"{diagram_type}-{slug}"
+
+
+def _uml_diagram_summary(diagram_type: str, diagram_data: Dict[str, Any]) -> str:
+    """Build a short text summary of diagram content for LLM title/description generation."""
+    if diagram_type == "class":
+        classes = diagram_data.get("classes") or []
+        rels = diagram_data.get("relationships") or []
+        class_names = [c.get("className") or c.get("id") or "" for c in classes if isinstance(c, dict)]
+        return f"Classes: {', '.join(filter(None, class_names))}. Relationships: {len(rels)}."
+    if diagram_type == "sequence":
+        lifelines = diagram_data.get("lifelines") or []
+        messages = diagram_data.get("messages") or []
+        lifeline_names = [l.get("name") or l.get("id") or "" for l in lifelines if isinstance(l, dict)]
+        return f"Lifelines: {', '.join(filter(None, lifeline_names))}. Messages: {len(messages)}."
+    if diagram_type == "use_case":
+        actors = diagram_data.get("actors") or []
+        use_cases = diagram_data.get("useCases") or []
+        actor_names = [a.get("name") or a.get("id") or "" for a in actors if isinstance(a, dict)]
+        uc_names = [u.get("name") or u.get("id") or "" for u in use_cases if isinstance(u, dict)]
+        return f"Actors: {', '.join(filter(None, actor_names))}. Use cases: {', '.join(filter(None, uc_names))}."
+    if diagram_type == "state":
+        states = diagram_data.get("states") or []
+        transitions = diagram_data.get("transitions") or []
+        state_names = [s.get("label") or s.get("id") or "" for s in states if isinstance(s, dict)]
+        return f"States: {', '.join(filter(None, state_names))}. Transitions: {len(transitions)}."
+    return "UML diagram."
+
+
+def _uml_unique_slug_from_title(title: str, diagram_type: str, existing_slugs: List[str]) -> str:
+    """Build a URL-safe slug from title and ensure it is unique among existing_slugs."""
+    raw = (title or "").strip()[:80]
+    base = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-") or "diagram"
+    base = f"{diagram_type}-{base}" if not base.startswith(diagram_type) else base
+    existing_set = set(existing_slugs or [])
+    slug = base
+    n = 2
+    while slug in existing_set:
+        slug = f"{base}-{n}"
+        n += 1
+    return slug
 
 
 def _log_rag(msg: str) -> None:
@@ -1496,8 +1535,35 @@ async def generate_uml(request: GenerateUmlRequest):
             "transitions": transitions,
         }
 
-    name = _uml_slug_from_prompt(request.prompt, diagram_type)
-    slug = name
+    # Generate unique, detailed title and description via LLM (unique from existing diagrams)
+    repo_name = request.repository_name or request.repo_full_name or "repository"
+    existing_list: List[Dict[str, str]] = []
+    existing_slugs: List[str] = []
+    if mongodb_service and request.repository_id:
+        existing = mongodb_service.get_existing_uml_titles_descriptions(request.repository_id)
+        if existing.get("success") and existing.get("titles_descriptions"):
+            existing_list = [
+                {"name": x.get("name") or "", "description": x.get("description") or ""}
+                for x in existing["titles_descriptions"]
+            ]
+            existing_slugs = [x.get("slug") or "" for x in existing["titles_descriptions"] if x.get("slug")]
+
+    diagram_summary = _uml_diagram_summary(diagram_type, diagram_data)
+    title_desc_result = llm_service.generate_uml_title_and_description(
+        prompt=request.prompt,
+        diagram_type=diagram_type,
+        diagram_summary=diagram_summary,
+        existing_titles_descriptions=existing_list,
+        repo_name=repo_name,
+    )
+    if title_desc_result.get("error"):
+        _log_rag(f"⚠ LLM title/description failed, using fallback: {title_desc_result.get('error')}")
+        name = _uml_slug_from_prompt(request.prompt, diagram_type)
+        description = None
+    else:
+        name = (title_desc_result.get("title") or "").strip() or _uml_slug_from_prompt(request.prompt, diagram_type)
+        description = (title_desc_result.get("description") or "").strip() or None
+    slug = _uml_unique_slug_from_title(name, diagram_type, existing_slugs)
 
     if mongodb_service and request.organization_id and request.repository_id:
         _log_rag("\n[Save] Saving diagram to MongoDB (uml_diagrams)...")
@@ -1537,6 +1603,7 @@ async def generate_uml(request: GenerateUmlRequest):
         s3_key=s3_key,
         file_paths=uml_file_paths,
         branch=branch,
+        description=description,
     )
     if not insert_result.get("success"):
         raise HTTPException(
@@ -1552,6 +1619,7 @@ async def generate_uml(request: GenerateUmlRequest):
         "diagramId": insert_result.get("diagram_id"),
         "slug": slug,
         "name": name,
+        "description": description,
         "s3Key": s3_key,
         "branch": branch,
     }

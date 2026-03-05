@@ -1867,6 +1867,85 @@ Produce a UML state diagram. One initial state, one or more final states, states
                 "transitions": [],
             }
 
+    def generate_uml_title_and_description(
+        self,
+        prompt: str,
+        diagram_type: str,
+        diagram_summary: str,
+        existing_titles_descriptions: List[Dict[str, str]],
+        repo_name: str = "repository",
+    ) -> Dict[str, Any]:
+        """
+        Generate a unique, detailed title and description for a UML diagram.
+        Ensures the new title and description are distinct from existing diagrams.
+        Returns {"title": str, "description": str} or {"error": str}.
+        """
+        type_label = {
+            "class": "class",
+            "sequence": "sequence",
+            "use_case": "use case",
+            "state": "state",
+        }.get(diagram_type, diagram_type)
+        existing_block = ""
+        if existing_titles_descriptions:
+            existing_block = "\n\nExisting diagram titles and descriptions in this repository (you MUST NOT duplicate these; create something clearly different and more specific):\n"
+            for i, item in enumerate(existing_titles_descriptions[:30], 1):
+                t = (item.get("name") or "").strip()
+                d = (item.get("description") or "").strip()
+                existing_block += f"{i}. Title: {t}\n   Description: {d}\n"
+
+        system_prompt = f"""You are an expert technical writer. Your task is to produce a single, unique title and a detailed description for a UML {type_label} diagram that was just generated from code.
+
+Rules:
+1. Title: One concise, specific title (e.g. "Authentication flow sequence diagram", "User service class structure"). It must be UNIQUE—do not reuse or closely mimic any of the existing titles provided. Make it descriptive of what this specific diagram shows.
+2. Description: Two to four sentences that explain what the diagram depicts, which parts of the system it covers, and why it is useful. Be specific to the content (classes/actors/states/messages mentioned). The description must also be UNIQUE and not repeat phrasing from existing descriptions.
+3. Output ONLY a JSON object with exactly two keys: "title" and "description". No markdown, no code fence."""
+
+        user_message = f"""Repository: {repo_name}
+Diagram type: UML {type_label} diagram
+User prompt used to generate the diagram: {prompt}
+
+Brief summary of what the diagram contains:
+{diagram_summary[:2000]}
+{existing_block}
+
+Produce a unique, detailed title and description for this diagram. Output ONLY the JSON object with "title" and "description"."""
+
+        def extract_json_from_text(text: str) -> str:
+            cleaned = text.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:].strip()
+            elif cleaned.startswith("```"):
+                cleaned = cleaned[3:].strip()
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+            return cleaned
+
+        try:
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            response_text = ""
+            if response.content and len(response.content) > 0:
+                response_text = response.content[0].text.strip()
+            cleaned = extract_json_from_text(response_text)
+            json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            if not json_match:
+                return {"error": "No JSON object in response", "title": "", "description": ""}
+            parsed = json.loads(json_match.group(0))
+            title = (parsed.get("title") or "").strip() or f"UML {type_label} diagram"
+            description = (parsed.get("description") or "").strip()
+            return {"title": title, "description": description}
+        except json.JSONDecodeError as e:
+            print(f"[LLMService] UML title/description JSON parse error: {e}")
+            return {"error": str(e), "title": "", "description": ""}
+        except Exception as e:
+            print(f"[LLMService] Error generating UML title/description: {e}")
+            return {"error": str(e), "title": "", "description": ""}
+
     def generate_parameter_descriptions_batch(
         self,
         parameters: List[Dict[str, Any]],
