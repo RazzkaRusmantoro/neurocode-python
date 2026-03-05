@@ -78,7 +78,16 @@ class S3Service:
         )
         
         return s3_key
-    
+
+    def generate_onboarding_path_key(
+        self,
+        organization_id: str,
+        path_id: str,
+        file_extension: str = "json"
+    ) -> str:
+        """Generate S3 key for onboarding path doc: organizations/{org_id}/onboarding/paths/{path_id}.json"""
+        return f"organizations/{organization_id}/onboarding/paths/{path_id}.{file_extension}"
+
     def upload_documentation(
         self,
         content: str,

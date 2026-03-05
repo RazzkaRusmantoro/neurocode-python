@@ -32,12 +32,16 @@ async def generate_visual_tree(request: GenerateVisualTreeRequest):
         Tree metadata including S3 location
     """
     try:
-        print("\n" + "=" * 60)
-        print("VISUAL TREE GENERATION PIPELINE")
-        print("=" * 60)
-        print(f"Repository: {request.repo_full_name}")
-        print(f"Branch: {request.branch}")
-        print("=" * 60)
+        print("\n" + "=" * 60, flush=True)
+        print("VISUAL TREE GENERATION PIPELINE", flush=True)
+        print("=" * 60, flush=True)
+        print(f"Repository: {request.repo_full_name}", flush=True)
+        print(f"Branch: {request.branch}", flush=True)
+        print(f"organization_id: {request.organization_id or '(missing)'}", flush=True)
+        print(f"repository_id: {request.repository_id or '(missing)'}", flush=True)
+        has_token = bool(getattr(request, "github_token", None) and (request.github_token or "").strip())
+        print(f"github_token: {'present' if has_token else 'MISSING or empty'}", flush=True)
+        print("=" * 60, flush=True)
 
         if not request.organization_id or not request.repository_id:
             raise HTTPException(
@@ -46,16 +50,17 @@ async def generate_visual_tree(request: GenerateVisualTreeRequest):
             )
 
         # Step 1: Fetch repository files
-        print("\n[Step 1/4] Fetching files from GitHub...")
+        print("\n[Step 1/4] Fetching files from GitHub...", flush=True)
         files = await github_fetcher.fetch_repository_files(
             repo_full_name=request.repo_full_name,
-            access_token=request.github_token,
+            access_token=request.github_token or "",
             branch=request.branch,
             path="",
         )
-        print(f"✓ Fetched {len(files)} files")
+        print(f"✓ Fetched {len(files)} files", flush=True)
 
         if len(files) == 0:
+            print("[VisualTree] No files returned. Check logs above for GitHubFetcher (branch SHA, tree, token).", flush=True)
             return {
                 "success": False,
                 "message": "No files found in repository",

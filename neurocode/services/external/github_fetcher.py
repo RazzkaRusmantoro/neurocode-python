@@ -50,25 +50,39 @@ class GitHubFetcher:
             List of file dictionaries with path, content, and language
         """
         files: List[Dict[str, Any]] = []
-        
+        token_preview = f"{access_token[:8]}..." if (access_token and len(access_token) > 8) else ("(empty)" if not access_token else "(present)")
+        print(f"[GitHubFetcher] fetch_repository_files: repo={repo_full_name!r} branch={branch!r} token={token_preview}", flush=True)
+
         async with httpx.AsyncClient(timeout=60.0) as client:
             # Step 1: Get the commit SHA for the branch (1 API call)
             commit_sha = await self._get_branch_sha(
                 client, repo_full_name, access_token, branch
             )
+            if not commit_sha and branch in ("main", "master"):
+                fallback = "master" if branch == "main" else "main"
+                print(f"[GitHubFetcher] Trying fallback branch {fallback!r}.", flush=True)
+                commit_sha = await self._get_branch_sha(
+                    client, repo_full_name, access_token, fallback
+                )
+                if commit_sha:
+                    branch = fallback
             if not commit_sha:
+                print(f"[GitHubFetcher] No commit SHA for branch {branch!r}; cannot fetch tree.", flush=True)
                 return files
-            
+            print(f"[GitHubFetcher] Branch SHA: {commit_sha[:12]}... (branch={branch!r})", flush=True)
+
             # Step 2: Get the full tree recursively (1 API call)
             tree_items = await self._get_tree_recursive(
                 client, repo_full_name, access_token, commit_sha, path
             )
             
             # Step 3: Filter and batch fetch file contents
+            print(f"[GitHubFetcher] Tree items to fetch: {len(tree_items)}", flush=True)
             await self._batch_fetch_file_contents(
                 client, repo_full_name, access_token, tree_items, files
             )
-        
+            print(f"[GitHubFetcher] Fetched {len(files)} file contents.", flush=True)
+
         return files
 
     async def get_default_branch(self, repo_full_name: str, access_token: str) -> Optional[str]:
@@ -187,9 +201,10 @@ class GitHubFetcher:
         branch: str
     ) -> Optional[str]:
         """Get the commit SHA for a branch (1 API call)"""
+        url = f"https://api.github.com/repos/{repo_full_name}/branches/{branch}"
         try:
             response = await client.get(
-                f"https://api.github.com/repos/{repo_full_name}/branches/{branch}",
+                url,
                 headers={
                     "Authorization": f"token {access_token}",
                     "Accept": "application/vnd.github.v3+json",
@@ -198,14 +213,12 @@ class GitHubFetcher:
             if response.status_code == 200:
                 data = response.json()
                 commit_sha = data.get("commit", {}).get("sha")
-                # Also get the tree SHA from the commit in the same response if available
-                commit_data = data.get("commit", {})
-                if commit_data.get("commit", {}).get("tree", {}).get("sha"):
-                    # We can get tree SHA from commit object if it's nested
-                    pass
                 return commit_sha
+            # Log non-200 so we can see 401/403/404
+            body = response.text[:500] if response.text else ""
+            print(f"[GitHubFetcher] _get_branch_sha {response.status_code} {url!r}: {body}", flush=True)
         except Exception as e:
-            print(f"Error getting branch SHA: {e}")
+            print(f"[GitHubFetcher] _get_branch_sha error: {e}", flush=True)
         return None
     
     async def _get_tree_recursive(
@@ -219,29 +232,37 @@ class GitHubFetcher:
         """Get the full repository tree recursively (1 API call)"""
         try:
             # Get the tree SHA from the commit first
+            commit_url = f"https://api.github.com/repos/{repo_full_name}/git/commits/{commit_sha}"
             commit_response = await client.get(
-                f"https://api.github.com/repos/{repo_full_name}/git/commits/{commit_sha}",
+                commit_url,
                 headers={
                     "Authorization": f"token {access_token}",
                     "Accept": "application/vnd.github.v3+json",
                 },
             )
             if commit_response.status_code != 200:
+                print(f"[GitHubFetcher] _get_tree_recursive commit response {commit_response.status_code}: {commit_response.text[:300]}", flush=True)
                 return []
-            
+
             tree_sha = commit_response.json().get("tree", {}).get("sha")
             if not tree_sha:
+                print(f"[GitHubFetcher] _get_tree_recursive: no tree.sha in commit response", flush=True)
                 return []
-            
+
             # Get the full tree recursively
+            tree_url = f"https://api.github.com/repos/{repo_full_name}/git/trees/{tree_sha}?recursive=1"
             tree_response = await client.get(
-                f"https://api.github.com/repos/{repo_full_name}/git/trees/{tree_sha}?recursive=1",
+                tree_url,
                 headers={
                     "Authorization": f"token {access_token}",
                     "Accept": "application/vnd.github.v3+json",
                 },
             )
-            
+
+            if tree_response.status_code != 200:
+                print(f"[GitHubFetcher] _get_tree_recursive tree response {tree_response.status_code}: {tree_response.text[:300]}", flush=True)
+                return []
+
             if tree_response.status_code == 200:
                 tree_data = tree_response.json()
                 all_items = tree_data.get("tree", [])
@@ -275,13 +296,14 @@ class GitHubFetcher:
                 # Prefer source-like paths (src/, app/, lib/, server/) so we index important code first
                 filtered.sort(key=lambda item: (_source_priority(item.get("path", "")), item.get("path", "")))
                 limited = filtered[:self.max_files]
+                print(f"[GitHubFetcher] Tree: {len(all_items)} items -> {len(filtered)} source files -> returning {len(limited)}", flush=True)
                 if len(filtered) > self.max_files:
                     print(f"[GitHubFetcher] Capping at {self.max_files} files (repo has {len(filtered)} source files). Set INDEX_MAX_FILES to index more.", flush=True)
                 return limited
-        
+
         except Exception as e:
-            print(f"Error getting tree: {e}")
-        
+            print(f"[GitHubFetcher] _get_tree_recursive error: {e}", flush=True)
+
         return []
     
     async def _batch_fetch_file_contents(

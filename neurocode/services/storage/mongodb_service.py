@@ -604,7 +604,7 @@ class MongoDBService:
         except (InvalidId, TypeError) as e:
             return {"success": False, "error": f"Invalid repository id: {str(e)}"}
         try:
-            cursor = self.db.documentations.find(
+            cursor = self.db.documentation.find(
                 {"repositoryId": repo_obj_id, "branch": branch}
             )
             docs = []
@@ -644,6 +644,32 @@ class MongoDBService:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    def get_existing_uml_titles_descriptions(self, repository_id: str) -> Dict[str, Any]:
+        """
+        Get existing name and description for all UML diagrams in a repository.
+        Used to generate unique title/description for new diagrams.
+        """
+        try:
+            repo_obj_id = ObjectId(repository_id)
+        except (InvalidId, TypeError) as e:
+            return {"success": False, "error": str(e), "titles_descriptions": []}
+        try:
+            cursor = self.db.uml_diagrams.find(
+                {"repositoryId": repo_obj_id},
+                projection={"name": 1, "description": 1, "slug": 1},
+            )
+            titles_descriptions = [
+                {
+                    "name": doc.get("name") or "",
+                    "description": doc.get("description") or "",
+                    "slug": doc.get("slug") or "",
+                }
+                for doc in cursor
+            ]
+            return {"success": True, "titles_descriptions": titles_descriptions}
+        except Exception as e:
+            return {"success": False, "error": str(e), "titles_descriptions": []}
+
     def set_documentations_needs_sync(
         self,
         documentation_ids: List[str],
@@ -660,7 +686,7 @@ class MongoDBService:
             return {"success": False, "error": f"Invalid id: {str(e)}"}
         try:
             now = datetime.utcnow()
-            result = self.db.documentations.update_many(
+            result = self.db.documentation.update_many(
                 {"_id": {"$in": obj_ids}},
                 {"$set": {"needsSync": True, "updatedAt": now}},
             )
@@ -707,7 +733,7 @@ class MongoDBService:
             return {"success": False, "error": f"Invalid id: {str(e)}"}
         try:
             now = datetime.utcnow()
-            self.db.documentations.update_one(
+            self.db.documentation.update_one(
                 {"_id": obj_id},
                 {"$set": {"isUpdating": is_updating, "updatedAt": now}},
             )
@@ -749,7 +775,7 @@ class MongoDBService:
         except (InvalidId, TypeError) as e:
             return {"success": False, "error": f"Invalid id: {str(e)}"}
         try:
-            doc = self.db.documentations.find_one({"_id": obj_id})
+            doc = self.db.documentation.find_one({"_id": obj_id})
             if not doc:
                 return {"success": False, "error": "Documentation not found"}
             doc["_id"] = str(doc["_id"])
@@ -825,7 +851,7 @@ class MongoDBService:
             update = {"needsSync": False, "isUpdating": False, "updatedAt": now}
             if file_paths is not None:
                 update["filePaths"] = file_paths
-            result = self.db.documentations.update_one(
+            result = self.db.documentation.update_one(
                 {"_id": obj_id},
                 {"$set": update},
             )
@@ -905,7 +931,7 @@ class MongoDBService:
                 document["documentationType"] = documentation_type
             if prompt:
                 document["prompt"] = prompt
-            result = self.db.documentations.insert_one(document)
+            result = self.db.documentation.insert_one(document)
             return {
                 "success": True,
                 "documentation_id": str(result.inserted_id),
@@ -925,6 +951,7 @@ class MongoDBService:
         s3_key: Optional[str] = None,
         file_paths: Optional[List[str]] = None,
         branch: Optional[str] = None,
+        description: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Insert a new UML diagram into uml_diagrams collection.
@@ -933,13 +960,14 @@ class MongoDBService:
             organization_id: Organization ID (MongoDB ObjectId string)
             repository_id: Repository ID (MongoDB ObjectId string)
             diagram_type: Type of diagram (e.g. "class")
-            name: Display name (e.g. "class-auth-module")
+            name: Display name (e.g. LLM-generated title)
             slug: URL-safe slug, unique per repo (e.g. "class-auth-module")
             prompt: User prompt used to generate the diagram
             diagram_data: Full diagram JSON (classes, relationships, etc.)
             s3_key: Optional S3 key for backup
             file_paths: Optional list of file paths from chunks used in generation (for sync tracking)
             branch: Branch this diagram was generated for (for worker repo+branch filtering)
+            description: Optional LLM-generated detailed description for the diagram
 
         Returns:
             Dictionary with success status and diagram _id
@@ -965,6 +993,8 @@ class MongoDBService:
                 "updatedAt": now,
                 "createdAt": now,
             }
+            if description is not None:
+                document["description"] = description
             if s3_key:
                 document["s3Key"] = s3_key
             if file_paths is not None:
