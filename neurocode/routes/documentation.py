@@ -1185,22 +1185,7 @@ Description:"""
                 if s3_result.get("success"):
                     print(f"✓ Documentation uploaded to S3: {s3_result['s3_key']}")
                     print(f"  Size: {s3_result['content_size']} bytes")
-                    # Store doc in MongoDB (same idea as UML: filePaths, needsSync, isUpdating)
-                    if mongodb_service and request.organization_id and request.repository_id:
-                        insert_doc = mongodb_service.insert_documentation(
-                            organization_id=request.organization_id,
-                            repository_id=request.repository_id,
-                            branch=branch,
-                            s3_key=s3_key,
-                            title=doc_title,
-                            file_paths=file_paths,
-                            documentation_type=getattr(request, "documentation_type", None),
-                            prompt=request.prompt,
-                        )
-                        if insert_doc.get("success"):
-                            print(f"✓ Documentation record saved to MongoDB (id: {insert_doc.get('documentation_id')})")
-                        else:
-                            print(f"⚠ MongoDB documentation insert failed: {insert_doc.get('error')}")
+                    # MongoDB record is created by Next.js API after this returns (single doc with full schema + filePaths, needsSync, isUpdating)
                 else:
                     print(f"⚠ S3 upload failed: {s3_result.get('error')}")
         else:

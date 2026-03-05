@@ -129,7 +129,167 @@ class LLMService:
         if response.content and len(response.content) > 0:
             return response.content[0].text.strip()
         return ""
-    
+
+    def generate_onboarding_suggested_paths(
+        self,
+        organization_name: str,
+        repo_contexts_text: str,
+    ) -> Dict[str, Any]:
+        """
+        Generate suggested onboarding learning paths (4-8 paths, 7-10 modules each)
+        from RAG-retrieved repo context. Returns list of paths with ids; grounded-only.
+        """
+        import uuid as _uuid
+        system_prompt = """You are an expert at onboarding new developers. You will be given an organization name and, for each repository, real content retrieved from the codebase (RAG chunks). Your job is to suggest onboarding learning paths.
+
+REQUIRED FIRST 2 PATHS (do NOT count toward the minimum of 4 additional paths):
+- Path 1 (REQUIRED): Local setup — getting the repos running on your machine. Title like "Local Setup: Getting the Repos Running on Your Machine" or "How to set up the repos on your machine". Modules: prerequisites, clone, environment/config, install, how to start each service. Use actual commands/files from the chunks when present.
+- Path 2 (REQUIRED): What everything is and how it all connects. Title like "What Everything Is and How It All Connects" or "Repo overview and how it fits together". Modules: what each repo does, how they communicate, key files and entry points. Ground in the chunks.
+
+ADDITIONAL PATHS (at least 4 required; aim for 6-7 paths total per generation):
+- These do NOT include the two above. You must output at least 4 more paths (so at least 6 paths in total), and ideally 6-7 total paths.
+- Each additional path should cover an actual important part of the org or repos: e.g. a key workflow (e.g. documentation generation, PR flow), backend architecture, frontend structure, a specific repo deep dive, testing, deployment, APIs, or other main areas suggested by the chunks. Ground every path in the provided content; no inventing.
+
+STRICT RULES:
+- Do NOT invent or assume resources not in the content: no "Wiki", "Knowledge Base", "Central Documentation Hub", etc., unless explicitly mentioned.
+- Do NOT make up project-specific names, tools, or processes not written in the chunks.
+- Each path must have exactly 7 to 10 modules.
+- Output only valid JSON: a single object with one key "paths" whose value is an array of path objects. No markdown, no code fence. Each path: {"title": "...", "summaryDescription": "...", "modules": [{"name": "...", "summaryDescription": "...", "order": 1}, ...]}."""
+
+        user_prompt = f"""Organization: {organization_name}
+
+Below is the actual content we have for each repository (retrieved from the codebase via RAG). Use ONLY this information.
+
+{repo_contexts_text}
+
+Generate at least 6 and ideally 6-7 onboarding learning paths total.
+
+First 2 paths (required; these do NOT count toward the "at least 4 more"):
+1. Local Setup: getting the repos running on your machine (clone, configure, run). Use setup/run content from the chunks.
+2. What Everything Is and How It All Connects: high-level map of the repos, what each does, how they communicate, key files and entry points.
+
+Then at least 4 ADDITIONAL paths about other important parts of the repos or org (e.g. key workflows, backend architecture, frontend structure, documentation flow, testing, deployment). Ground each in the chunks. Aim for 6-7 paths total.
+
+Each path: title, summaryDescription (1-2 sentences), modules (7-10 items: name, summaryDescription, order). Do not invent wikis or hubs. Return only a JSON object: {{"paths": [{{"title":"...","summaryDescription":"...","modules":[{{"name":"...","summaryDescription":"...","order":1}},...]}},...]}}"""
+
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=8192,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        text = (response.content[0].text if response.content else "").strip()
+        text = re.sub(r"^```json?\s*|\s*```$", "", text).strip()
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            json_match = re.search(r"\{.*\}", text, re.DOTALL)
+            parsed = json.loads(json_match.group(0)) if json_match else {}
+        paths_raw = parsed.get("paths") or []
+        if not isinstance(paths_raw, list):
+            paths_raw = []
+        paths_out = []
+        for p in paths_raw:
+            if not isinstance(p, dict):
+                continue
+            path_id = _uuid.uuid4().hex[:10]
+            modules_raw = p.get("modules") or []
+            modules_out = []
+            for idx, m in enumerate(sorted(modules_raw, key=lambda x: (x if isinstance(x, dict) else {}).get("order", 999))[:10]):
+                if not isinstance(m, dict):
+                    continue
+                modules_out.append({
+                    "id": _uuid.uuid4().hex[:8],
+                    "name": (m.get("name") or f"Module {idx + 1}").strip(),
+                    "summaryDescription": (m.get("summaryDescription") or "").strip(),
+                    "order": m.get("order") or (idx + 1),
+                })
+            if len(modules_out) < 7:
+                continue
+            paths_out.append({
+                "id": path_id,
+                "title": (p.get("title") or "Onboarding path").strip(),
+                "summaryDescription": (p.get("summaryDescription") or "").strip(),
+                "modules": modules_out,
+            })
+        return {"paths": paths_out}
+
+    def generate_onboarding_path_documentation(
+        self,
+        path_title: str,
+        path_summary: str,
+        modules: List[Dict[str, Any]],
+        context_chunks: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """
+        Generate full onboarding path documentation (like generate_structured_documentation).
+        One section per module; descriptions grounded in code context.
+        Returns: { "documentation": { "description", "sections" }, "code_reference_ids": [] }
+        """
+        context_parts = []
+        for i, chunk in enumerate(context_chunks, 1):
+            meta = chunk.get("metadata", {})
+            file_path = meta.get("file_path", "unknown")
+            content = chunk.get("content", "")
+            fn = meta.get("function_name", "")
+            cls = meta.get("class_name", "")
+            header = f"--- Code Chunk {i} ---\nFile: {file_path}\n"
+            if cls:
+                header += f"Class: {cls}\n"
+            if fn:
+                header += f"Function: {fn}\n"
+            header += "---\n"
+            context_parts.append(header + content + "\n")
+        context = "\n".join(context_parts)
+
+        modules_text = "\n".join(
+            f"- Section {i}: {m.get('name', '')} — {m.get('summary_description', m.get('summaryDescription', ''))}"
+            for i, m in enumerate(sorted(modules, key=lambda x: x.get("order", 999)), 1)
+        )
+
+        system_prompt = """You are a technical documentation expert. Generate onboarding documentation in JSON format.
+
+Output MUST be valid JSON only (no markdown fence). Structure:
+{"documentation": {"description": "2-3 sentence overview", "sections": [{"id": "1", "title": "...", "description": "...", "subsections": []}, ...]}, "code_reference_ids": []}
+
+Rules:
+- One section per module in the order given. Section id "1", "2", "3", etc. Title = module name. Description = detailed content (2-5 paragraphs) using the provided code context; include steps, file paths, code snippets (```), tables where helpful.
+- Use the code chunks to ground every claim. Add optional subsections per section if it helps (e.g. "1.1", "1.2").
+- Use Markdown: **bold**, lists, ```code blocks```, tables. Be concrete (real file names, commands from context).
+- code_reference_ids: leave as [] unless you extract specific function/class names from context."""
+
+        user_prompt = f"""Path title: {path_title}
+Path summary: {path_summary}
+
+Modules (generate one section per module in this order):
+{modules_text}
+
+Code context from the codebase:
+{context}
+
+Generate the JSON object with "documentation" (description + sections) and "code_reference_ids" (array). One section per module; section id "1", "2", ...; title = module name; description = thorough onboarding content from the code. Output only JSON."""
+
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=16000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+        text = (response.content[0].text if response.content else "").strip()
+        import re
+        text = re.sub(r"^```json?\s*|\s*```$", "", text).strip()
+        json_match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not json_match:
+            return {"documentation": {"description": path_summary, "sections": []}, "code_reference_ids": []}
+        try:
+            parsed = json.loads(json_match.group(0))
+        except json.JSONDecodeError:
+            return {"documentation": {"description": path_summary, "sections": []}, "code_reference_ids": []}
+        doc = parsed.get("documentation") or {}
+        if "sections" not in doc:
+            doc["sections"] = []
+        return {"documentation": doc, "code_reference_ids": parsed.get("code_reference_ids", [])}
+
     def generate_documentation(
         self,
         prompt: str,

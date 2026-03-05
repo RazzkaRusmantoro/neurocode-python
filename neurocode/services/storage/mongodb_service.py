@@ -604,7 +604,7 @@ class MongoDBService:
         except (InvalidId, TypeError) as e:
             return {"success": False, "error": f"Invalid repository id: {str(e)}"}
         try:
-            cursor = self.db.documentations.find(
+            cursor = self.db.documentation.find(
                 {"repositoryId": repo_obj_id, "branch": branch}
             )
             docs = []
@@ -660,7 +660,7 @@ class MongoDBService:
             return {"success": False, "error": f"Invalid id: {str(e)}"}
         try:
             now = datetime.utcnow()
-            result = self.db.documentations.update_many(
+            result = self.db.documentation.update_many(
                 {"_id": {"$in": obj_ids}},
                 {"$set": {"needsSync": True, "updatedAt": now}},
             )
@@ -707,7 +707,7 @@ class MongoDBService:
             return {"success": False, "error": f"Invalid id: {str(e)}"}
         try:
             now = datetime.utcnow()
-            self.db.documentations.update_one(
+            self.db.documentation.update_one(
                 {"_id": obj_id},
                 {"$set": {"isUpdating": is_updating, "updatedAt": now}},
             )
@@ -749,7 +749,7 @@ class MongoDBService:
         except (InvalidId, TypeError) as e:
             return {"success": False, "error": f"Invalid id: {str(e)}"}
         try:
-            doc = self.db.documentations.find_one({"_id": obj_id})
+            doc = self.db.documentation.find_one({"_id": obj_id})
             if not doc:
                 return {"success": False, "error": "Documentation not found"}
             doc["_id"] = str(doc["_id"])
@@ -825,7 +825,7 @@ class MongoDBService:
             update = {"needsSync": False, "isUpdating": False, "updatedAt": now}
             if file_paths is not None:
                 update["filePaths"] = file_paths
-            result = self.db.documentations.update_one(
+            result = self.db.documentation.update_one(
                 {"_id": obj_id},
                 {"$set": update},
             )
@@ -905,7 +905,7 @@ class MongoDBService:
                 document["documentationType"] = documentation_type
             if prompt:
                 document["prompt"] = prompt
-            result = self.db.documentations.insert_one(document)
+            result = self.db.documentation.insert_one(document)
             return {
                 "success": True,
                 "documentation_id": str(result.inserted_id),

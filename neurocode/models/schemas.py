@@ -142,3 +142,46 @@ class GetUmlDiagramRequest(BaseModel):
     repository_id: Optional[str] = None
     slug: Optional[str] = None
     diagram_id: Optional[str] = None
+
+
+class OnboardingRepoInput(BaseModel):
+    """One repository for onboarding suggested-paths (RAG + LLM in Python)."""
+    repo_full_name: str
+    repository_name: str
+    repository_id: Optional[str] = None
+    github_token: str
+
+
+class OnboardingSuggestedPathsRequest(BaseModel):
+    """Request to generate suggested onboarding learning paths using RAG per repo."""
+    organization_name: str
+    organization_short_id: str
+    organization_id: Optional[str] = None
+    repositories: List[OnboardingRepoInput]
+    branch: Optional[str] = "main"
+
+
+class OnboardingPathModuleInput(BaseModel):
+    """One module in an onboarding path (for RAG doc generation)."""
+    id: str
+    name: str
+    summary_description: str
+    order: int
+
+
+class OnboardingPathInput(BaseModel):
+    """One learning path to generate full RAG documentation for."""
+    path_id: str
+    title: str
+    summary_description: str
+    modules: List[OnboardingPathModuleInput]
+
+
+class GenerateOnboardingPathDocRequest(BaseModel):
+    """Request to generate full RAG documentation for one onboarding path (like generate-docs-rag)."""
+    organization_name: str
+    organization_short_id: str
+    organization_id: Optional[str] = None
+    repositories: List[OnboardingRepoInput]
+    branch: Optional[str] = "main"
+    path: OnboardingPathInput
