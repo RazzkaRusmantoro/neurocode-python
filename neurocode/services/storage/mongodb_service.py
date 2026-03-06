@@ -1052,6 +1052,155 @@ class MongoDBService:
         doc["repositoryId"] = str(doc["repositoryId"])
         return {"success": True, "diagram": doc}
 
+    # ---- Chat persistence (onboarding chatbot) ----
+    def create_chat(
+        self,
+        user_id: str,
+        title: str = "New chat",
+        context_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a new chat for a user, optionally scoped to a context (e.g. per-documentation). Returns { success, chat_id, chat }."""
+        try:
+            now = datetime.utcnow()
+            # Initial welcome message so the chat has at least one message
+            welcome = {
+                "id": "welcome",
+                "role": "assistant",
+                "content": "Hi! I'm your AI assistant. How can I help you with onboarding today?",
+                "createdAt": now,
+            }
+            doc = {
+                "userId": user_id,
+                "title": title,
+                "messages": [welcome],
+                "createdAt": now,
+                "updatedAt": now,
+            }
+            if context_id is not None:
+                doc["contextId"] = context_id
+            result = self.db.chats.insert_one(doc)
+            chat_id = str(result.inserted_id)
+            return {
+                "success": True,
+                "chat_id": chat_id,
+                "chat": self._chat_doc_to_response(doc, chat_id),
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _chat_doc_to_response(self, doc: Dict[str, Any], chat_id: Optional[str] = None) -> Dict[str, Any]:
+        """Convert MongoDB chat document to API response shape (id, title, messages, createdAt, updatedAt)."""
+        mid = chat_id or str(doc.get("_id", ""))
+        messages = []
+        for m in doc.get("messages") or []:
+            ts = m.get("createdAt")
+            if hasattr(ts, "isoformat"):
+                ts = ts.isoformat() + "Z"
+            messages.append({
+                "id": m.get("id", ""),
+                "role": "assistant" if m.get("role") == "assistant" else "user",
+                "sender": "bot" if m.get("role") == "assistant" else "user",
+                "content": m.get("content", ""),
+                "text": m.get("content", ""),
+                "createdAt": ts,
+            })
+        created = doc.get("createdAt")
+        updated = doc.get("updatedAt")
+        if hasattr(created, "isoformat"):
+            created = created.isoformat() + "Z"
+        if hasattr(updated, "isoformat"):
+            updated = updated.isoformat() + "Z"
+        return {
+            "id": mid,
+            "title": doc.get("title", "New chat"),
+            "messages": messages,
+            "createdAt": created,
+            "updatedAt": updated,
+        }
+
+    def list_chats_by_user(self, user_id: str, context_id: Optional[str] = None) -> Dict[str, Any]:
+        """List chats for a user, optionally filtered by context_id (per-documentation scope). Most recently updated first."""
+        try:
+            query: Dict[str, Any] = {"userId": user_id}
+            if context_id is not None:
+                query["contextId"] = context_id
+            cursor = self.db.chats.find(query).sort("updatedAt", -1)
+            chats = []
+            for doc in cursor:
+                chat_id = str(doc["_id"])
+                chats.append({
+                    "id": chat_id,
+                    "title": doc.get("title", "New chat"),
+                    "updatedAt": doc.get("updatedAt"),
+                    "messageCount": len(doc.get("messages") or []),
+                })
+            return {"success": True, "chats": chats}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def get_chat(self, chat_id: str, user_id: str) -> Dict[str, Any]:
+        """Get a single chat by id; verify userId. Returns { success, chat } or { success: False }."""
+        try:
+            obj_id = ObjectId(chat_id)
+        except (InvalidId, TypeError):
+            return {"success": False, "error": "Invalid chat id"}
+        doc = self.db.chats.find_one({"_id": obj_id, "userId": user_id})
+        if not doc:
+            return {"success": False, "error": "Chat not found"}
+        return {
+            "success": True,
+            "chat": self._chat_doc_to_response(doc, str(doc["_id"])),
+        }
+
+    def append_chat_messages(
+        self,
+        chat_id: str,
+        user_id: str,
+        user_content: str,
+        assistant_content: str,
+        *,
+        title_if_first_user: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Append user and assistant messages; optionally set title if this is the first user message."""
+        try:
+            obj_id = ObjectId(chat_id)
+        except (InvalidId, TypeError):
+            return {"success": False, "error": "Invalid chat id"}
+        try:
+            doc = self.db.chats.find_one({"_id": obj_id, "userId": user_id})
+            if not doc:
+                return {"success": False, "error": "Chat not found"}
+            messages = list(doc.get("messages") or [])
+            now = datetime.utcnow()
+            has_user = any(m.get("role") == "user" for m in messages)
+            user_msg = {
+                "id": f"user-{now.timestamp()}",
+                "role": "user",
+                "content": user_content,
+                "createdAt": now,
+            }
+            assistant_msg = {
+                "id": f"assistant-{now.timestamp()}",
+                "role": "assistant",
+                "content": assistant_content,
+                "createdAt": now,
+            }
+            messages.append(user_msg)
+            messages.append(assistant_msg)
+            update: Dict[str, Any] = {"$set": {"messages": messages, "updatedAt": now}}
+            if title_if_first_user and not has_user:
+                update["$set"]["title"] = title_if_first_user
+            self.db.chats.update_one({"_id": obj_id, "userId": user_id}, update)
+            return {
+                "success": True,
+                "chat": self._chat_doc_to_response(
+                    {**doc, "messages": messages, "title": update["$set"].get("title", doc.get("title")), "updatedAt": now},
+                    chat_id,
+                ),
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     def close(self):
         """Close MongoDB connection"""
         if self.client:
