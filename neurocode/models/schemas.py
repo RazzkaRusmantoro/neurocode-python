@@ -159,6 +159,19 @@ class GetUmlDiagramRequest(BaseModel):
     diagram_id: Optional[str] = None
 
 
+class TaskCompassRequest(BaseModel):
+    """Request model for Task Compass analysis."""
+    org_short_id: str
+    task_id: str
+    task_title: str
+    task_description: Optional[str] = None
+    task_type: Optional[str] = None
+    repositories: Optional[List[str]] = None
+    top_k: Optional[int] = 15
+    github_token: Optional[str] = None
+    repo_full_names: Optional[List[str]] = None
+
+
 class OnboardingRepoInput(BaseModel):
     """One repository for onboarding suggested-paths (RAG + LLM in Python)."""
     repo_full_name: str
