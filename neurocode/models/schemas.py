@@ -111,6 +111,21 @@ class ChatRequest(BaseModel):
     message: str
     history: Optional[List[ChatMessage]] = []
     org_context: Optional[OrgContext] = None
+    documentation_content: Optional[str] = None  # Full doc text for documentation-aware chat
+
+
+class CreateChatRequest(BaseModel):
+    """Request to create a new persisted chat"""
+    user_id: str
+    title: Optional[str] = "New chat"
+    context_id: Optional[str] = None  # Scope chats per doc (e.g. repo-doc:org:repo, onboarding:org:pathSlug)
+
+
+class SendMessageRequest(BaseModel):
+    """Request to send a message in a persisted chat"""
+    message: str
+    user_id: str
+    documentation_content: Optional[str] = None  # Full doc text for documentation-aware chat
 
 
 class HotZonesRecommendAreasRequest(BaseModel):
