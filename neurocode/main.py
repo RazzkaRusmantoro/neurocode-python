@@ -1,16 +1,13 @@
-"""
-FastAPI server for NeuroCode Python backend
-"""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+                                           
 load_dotenv()
 
-# Import routes
+               
 from neurocode.routes import (
     health,
     mongodb,
@@ -23,6 +20,7 @@ from neurocode.routes import (
     hot_zones,
     task_compass,
     onboarding,
+    knowledge_graph,
 )
 
 app = FastAPI(
@@ -31,8 +29,8 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Configure CORS to allow requests from Next.js
-# Get CORS origins from environment or use defaults
+                                               
+                                                   
 cors_origins = os.getenv(
     "CORS_ORIGINS",
     "http://localhost:3000,http://127.0.0.1:3000"
@@ -46,7 +44,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register routes
+                 
 app.include_router(health.router)
 app.include_router(mongodb.router)
 app.include_router(github.router)
@@ -58,6 +56,7 @@ app.include_router(chat.router)
 app.include_router(hot_zones.router)
 app.include_router(task_compass.router)
 app.include_router(onboarding.router)
+app.include_router(knowledge_graph.router)
 
 if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")

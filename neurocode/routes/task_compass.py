@@ -1,9 +1,3 @@
-"""
-Task Compass route: analyzes a task against indexed code to produce
-structured context for developers (summary, caution areas, relevant files,
-entry points, ownership).
-"""
-
 from fastapi import APIRouter, HTTPException
 
 from neurocode.models.schemas import TaskCompassRequest
@@ -16,10 +10,7 @@ router = APIRouter(prefix="/task-compass", tags=["task-compass"])
 
 @router.post("/analyze")
 async def analyze(request: TaskCompassRequest) -> dict:
-    """
-    Analyze a task: search the org's indexed repos for relevant code, then
-    ask the LLM to produce structured compass context.
-    """
+    
     if not llm_service:
         raise HTTPException(
             status_code=503,

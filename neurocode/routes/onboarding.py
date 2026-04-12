@@ -1,7 +1,3 @@
-"""
-Onboarding suggested learning paths: RAG retrieval per repo + LLM generation.
-Generate full path doc: RAG per repo + LLM (same pipeline as generate-docs-rag).
-"""
 from fastapi import APIRouter, HTTPException
 
 from neurocode.models.schemas import (
@@ -51,10 +47,7 @@ def _format_chunk(hit: dict) -> str:
 
 @router.post("/api/onboarding/suggested-paths")
 async def generate_suggested_paths(request: OnboardingSuggestedPathsRequest):
-    """
-    Generate suggested onboarding learning paths using RAG per repo.
-    For each repo: index if needed, retrieve chunks with onboarding query, then LLM generates paths + modules.
-    """
+    
     if not llm_service:
         raise HTTPException(
             status_code=503,
@@ -137,7 +130,7 @@ async def generate_suggested_paths(request: OnboardingSuggestedPathsRequest):
     return {"success": True, "paths": paths}
 
 
-# RAG query for path doc: path title + module names so we get relevant chunks
+                                                                             
 def _path_doc_query(path) -> str:
     parts = [path.title, path.summary_description or ""]
     for m in sorted(path.modules, key=lambda x: x.order):
@@ -152,11 +145,7 @@ MAX_CHUNKS_PATH_DOC = 40
 
 @router.post("/api/onboarding/generate-path-doc")
 async def generate_path_doc(request: GenerateOnboardingPathDocRequest):
-    """
-    Generate full RAG documentation for one onboarding path (like generate-docs-rag).
-    For each org repo: index if needed, retrieve chunks, then merge and run LLM.
-    Upload result to S3. Returns s3_key, s3_bucket, content_size for Next to store.
-    """
+    
     if not llm_service:
         raise HTTPException(status_code=503, detail="LLM service not available. Set ANTHROPIC_API_KEY.")
     if not s3_service:
@@ -225,7 +214,7 @@ async def generate_path_doc(request: GenerateOnboardingPathDocRequest):
             detail="No RAG chunks found for any repository. Index repos first.",
         )
 
-    # Limit total chunks for LLM
+                                
     all_chunks = all_chunks[:MAX_CHUNKS_PATH_DOC]
     modules_for_llm = [
         {

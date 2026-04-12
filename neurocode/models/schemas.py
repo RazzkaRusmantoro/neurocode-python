@@ -1,12 +1,9 @@
-"""
-Pydantic models for API requests
-"""
 from pydantic import BaseModel
 from typing import Optional, List
 
 
 class FetchRepositoryRequest(BaseModel):
-    """Request model for fetching repository files"""
+    
     github_token: str
     repo_full_name: str
     branch: Optional[str] = "main"
@@ -14,44 +11,44 @@ class FetchRepositoryRequest(BaseModel):
 
 
 class GenerateDocumentationRequest(BaseModel):
-    """Request model for generating documentation"""
+    
     github_token: str
     repo_full_name: str
     branch: Optional[str] = "main"
     scope: Optional[str] = "repository"
     target: Optional[str] = None
-    organization_id: Optional[str] = None  # MongoDB ObjectId for organization
-    organization_short_id: Optional[str] = None  # Alternative: org short ID
-    organization_name: Optional[str] = None  # Organization name from NeuroCode platform
-    repository_id: Optional[str] = None  # MongoDB ObjectId for repository
-    repository_name: Optional[str] = None  # Repository name from NeuroCode platform
+    organization_id: Optional[str] = None                                     
+    organization_short_id: Optional[str] = None                             
+    organization_name: Optional[str] = None                                             
+    repository_id: Optional[str] = None                                   
+    repository_name: Optional[str] = None                                           
 
 
 class GenerateDocsRAGRequest(BaseModel):
-    """Request model for RAG-based documentation generation"""
+    
     github_token: str
     repo_full_name: str
     branch: Optional[str] = "main"
-    prompt: str  # User's query/prompt
+    prompt: str                       
     organization_id: Optional[str] = None
     organization_short_id: Optional[str] = None
     organization_name: Optional[str] = None
     repository_id: Optional[str] = None
     repository_name: Optional[str] = None
-    top_k: Optional[int] = 20  # Number of chunks to retrieve
-    documentation_type: Optional[str] = None  # api | architecture | aiAgent | endUser | test | onboarding
-    ai_agent_doc_kind: Optional[str] = None  # context | playbook | custom (when documentation_type == 'aiAgent')
-    ai_agent_extra_instructions: Optional[str] = None  # Required when documentation_type == 'aiAgent'
+    top_k: Optional[int] = 20                                
+    documentation_type: Optional[str] = None                                                              
+    ai_agent_doc_kind: Optional[str] = None                                                                      
+    ai_agent_extra_instructions: Optional[str] = None                                                 
 
 
 class GetDocumentationRequest(BaseModel):
-    """Request model for retrieving documentation from S3"""
+    
     s3_key: str
     s3_bucket: Optional[str] = None
 
 
 class GenerateVisualTreeRequest(BaseModel):
-    """Request model for generating a visual repository tree"""
+    
     github_token: str
     repo_full_name: str
     branch: Optional[str] = "main"
@@ -63,7 +60,7 @@ class GenerateVisualTreeRequest(BaseModel):
 
 
 class QueueIndexRequest(BaseModel):
-    """Request model for queuing a repo index job (background RAG pipeline)"""
+    
     github_token: str
     repo_full_name: str
     branch: Optional[str] = "main"
@@ -76,15 +73,23 @@ class QueueIndexRequest(BaseModel):
 
 
 class UpdateRepoBranchCommitsRequest(BaseModel):
-    """Request model for storing latest commit per branch when adding/updating a repo"""
+    
     github_token: str
     repo_full_name: str
     organization_id: str
     repository_id: str
 
 
+class QueueKGBuildRequest(BaseModel):
+    
+    github_token: str
+    repo_full_name: str
+    repo_id: str                                                                         
+    branch: Optional[str] = "main"
+
+
 class AnalyzePullRequestRequest(BaseModel):
-    """Request model for analyzing a pull request"""
+    
     github_token: str
     repo_full_name: str
     pr_number: int
@@ -96,53 +101,53 @@ class AnalyzePullRequestRequest(BaseModel):
 
 
 class OrgContext(BaseModel):
-    """Organization context for chat (search all repos in the org)"""
+    
     org_short_id: str
 
 
 class ChatMessage(BaseModel):
-    """Single message in chat history"""
-    role: str  # "user" | "assistant"
+    
+    role: str                        
     content: str
 
 
 class ChatRequest(BaseModel):
-    """Request model for RAG chat (organization-scoped)"""
+    
     message: str
     history: Optional[List[ChatMessage]] = []
     org_context: Optional[OrgContext] = None
-    documentation_content: Optional[str] = None  # Full doc text for documentation-aware chat
+    documentation_content: Optional[str] = None                                              
 
 
 class CreateChatRequest(BaseModel):
-    """Request to create a new persisted chat"""
+    
     user_id: str
     title: Optional[str] = "New chat"
-    context_id: Optional[str] = None  # Scope chats per doc (e.g. repo-doc:org:repo, onboarding:org:pathSlug)
+    context_id: Optional[str] = None                                                                         
 
 
 class SendMessageRequest(BaseModel):
-    """Request to send a message in a persisted chat"""
+    
     message: str
     user_id: str
-    documentation_content: Optional[str] = None  # Full doc text for documentation-aware chat
+    documentation_content: Optional[str] = None                                              
 
 
 class HotZonesRecommendAreasRequest(BaseModel):
-    """Request model to recommend relevant code areas for a task query."""
+    
     org_short_id: str
     query: str
-    repo_url_names: Optional[List[str]] = None  # optional scope to specific repos (urlName slugs)
+    repo_url_names: Optional[List[str]] = None                                                    
     top_n: Optional[int] = 10
 
 
 class GenerateUmlRequest(BaseModel):
-    """Request model for RAG-based UML diagram generation (e.g. class diagram)."""
+    
     github_token: str
     repo_full_name: str
     branch: Optional[str] = "main"
     prompt: str
-    diagram_type: str = "class"  # only "class" supported for now
+    diagram_type: str = "class"                                  
     organization_id: Optional[str] = None
     organization_short_id: Optional[str] = None
     organization_name: Optional[str] = None
@@ -152,7 +157,7 @@ class GenerateUmlRequest(BaseModel):
 
 
 class GetUmlDiagramRequest(BaseModel):
-    """Request model for retrieving a UML diagram by slug or id."""
+    
     organization_id: Optional[str] = None
     repository_id: Optional[str] = None
     slug: Optional[str] = None
@@ -160,7 +165,7 @@ class GetUmlDiagramRequest(BaseModel):
 
 
 class TaskCompassRequest(BaseModel):
-    """Request model for Task Compass analysis."""
+    
     org_short_id: str
     task_id: str
     task_title: str
@@ -173,7 +178,7 @@ class TaskCompassRequest(BaseModel):
 
 
 class OnboardingRepoInput(BaseModel):
-    """One repository for onboarding suggested-paths (RAG + LLM in Python)."""
+    
     repo_full_name: str
     repository_name: str
     repository_id: Optional[str] = None
@@ -181,7 +186,7 @@ class OnboardingRepoInput(BaseModel):
 
 
 class OnboardingSuggestedPathsRequest(BaseModel):
-    """Request to generate suggested onboarding learning paths using RAG per repo."""
+    
     organization_name: str
     organization_short_id: str
     organization_id: Optional[str] = None
@@ -190,7 +195,7 @@ class OnboardingSuggestedPathsRequest(BaseModel):
 
 
 class OnboardingPathModuleInput(BaseModel):
-    """One module in an onboarding path (for RAG doc generation)."""
+    
     id: str
     name: str
     summary_description: str
@@ -198,7 +203,7 @@ class OnboardingPathModuleInput(BaseModel):
 
 
 class OnboardingPathInput(BaseModel):
-    """One learning path to generate full RAG documentation for."""
+    
     path_id: str
     title: str
     summary_description: str
@@ -206,7 +211,7 @@ class OnboardingPathInput(BaseModel):
 
 
 class GenerateOnboardingPathDocRequest(BaseModel):
-    """Request to generate full RAG documentation for one onboarding path (like generate-docs-rag)."""
+    
     organization_name: str
     organization_short_id: str
     organization_id: Optional[str] = None

@@ -1,31 +1,28 @@
-"""
-Test script to verify MongoDB connection
-"""
 import os
 import sys
 from dotenv import load_dotenv
 
-# Load environment variables
+                            
 load_dotenv()
 
-# Add parent directory to path to import neurocode
+                                                  
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from neurocode.services.mongodb_service import MongoDBService
 
 def test_mongodb_connection():
-    """Test MongoDB connection"""
+    
     print("=" * 60)
     print("Testing MongoDB Connection")
     print("=" * 60)
     
     try:
-        # Initialize MongoDB service
+                                    
         print("\n[1] Initializing MongoDB service...")
         mongodb_service = MongoDBService()
         print("    [OK] MongoDB service initialized")
         
-        # Test connection
+                         
         print("\n[2] Testing connection...")
         result = mongodb_service.check_connection()
         
@@ -67,7 +64,7 @@ def test_mongodb_connection():
         print("=" * 60)
         return False
     finally:
-        # Close connection
+                          
         if 'mongodb_service' in locals():
             mongodb_service.close()
 

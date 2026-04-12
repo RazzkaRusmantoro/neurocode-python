@@ -1,7 +1,3 @@
-"""
-Code analyzer service
-Combines parsing and chunking to prepare code for vectorization
-"""
 from typing import List, Dict, Any, Optional
 from neurocode.services.analysis.parser import TreeSitterParser, ParseResult
 from neurocode.services.analysis.chunker import CodeChunker
@@ -9,7 +5,7 @@ from neurocode.services.analysis.chunker.models import CodeChunk
 
 
 class CodeAnalyzer:
-    """Analyzes code by parsing and chunking it"""
+    
     
     def __init__(self):
         self.parser = TreeSitterParser()
@@ -20,34 +16,25 @@ class CodeAnalyzer:
         files: List[Dict[str, Any]],
         chunking_strategy: str = "hybrid"
     ) -> Dict[str, Any]:
-        """
-        Parse files and create chunks
         
-        Args:
-            files: List of dicts with 'path', 'content', 'language'
-            chunking_strategy: 'function', 'flow', or 'hybrid'
-        
-        Returns:
-            Dictionary with parsed structure and chunks
-        """
-        # Initialize parser
+                           
         await self.parser.initialize()
         
-        # Parse files
+                     
         print(f"[CodeAnalyzer] Parsing {len(files)} files...", flush=True)
         parse_result = await self.parser.parse_files(files)
         
-        # Store file contents for chunking
+                                          
         file_contents = {f['path']: f['content'] for f in files}
         self.chunker.set_file_contents(file_contents)
         
-        # Create chunks
+                       
         print(f"[CodeAnalyzer] Creating chunks with strategy: {chunking_strategy}...", flush=True)
         chunks = self.chunker.create_chunks(parse_result, strategy=chunking_strategy)
         
         print(f"[CodeAnalyzer] ✓ Created {len(chunks)} chunks", flush=True)
         
-        # Structure output
+                          
         return {
             "repository_structure": self._build_repository_structure(parse_result),
             "symbols": self._extract_symbols_summary(parse_result),
@@ -69,7 +56,7 @@ class CodeAnalyzer:
         }
     
     def _build_repository_structure(self, parse_result: ParseResult) -> Dict[str, Any]:
-        """Build repository structure with subsystems"""
+        
         subsystems: Dict[str, List[str]] = {}
         
         for parsed_file in parse_result.structure.files:
@@ -90,7 +77,7 @@ class CodeAnalyzer:
         }
     
     def _extract_symbols_summary(self, parse_result: ParseResult) -> Dict[str, Any]:
-        """Extract symbols summary with key snippets"""
+        
         symbols: Dict[str, Any] = {}
         
         for parsed_file in parse_result.structure.files:
@@ -104,7 +91,7 @@ class CodeAnalyzer:
                         "isExported": func.isExported,
                         "startLine": func.startLine,
                         "endLine": func.endLine,
-                        "snippet": func.body[:500] if func.body else ""  # First 500 chars
+                        "snippet": func.body[:500] if func.body else ""                   
                     }
                     for func in parsed_file.functions
                 ],
@@ -129,7 +116,7 @@ class CodeAnalyzer:
         return symbols
     
     def _format_dependencies(self, dependencies: List[Any]) -> List[Dict[str, Any]]:
-        """Format dependencies for output"""
+        
         return [
             {
                 "from": dep.from_path,
@@ -141,7 +128,7 @@ class CodeAnalyzer:
         ]
     
     def _format_function_usage(self, function_usage: Dict[str, Any]) -> Dict[str, Any]:
-        """Format function usage for output"""
+        
         return {
             func_name: {
                 "definedIn": usage.definedIn,
@@ -159,7 +146,7 @@ class CodeAnalyzer:
         }
     
     def _format_chunks(self, chunks: List[CodeChunk]) -> List[Dict[str, Any]]:
-        """Format chunks for output"""
+        
         return [
             {
                 "id": chunk.id,
@@ -185,7 +172,7 @@ class CodeAnalyzer:
         ]
     
     def _get_subsystem(self, file_path: str) -> str:
-        """Get subsystem (folder) for a file"""
+        
         parts = file_path.split("/")
         if len(parts) > 1:
             return parts[0]

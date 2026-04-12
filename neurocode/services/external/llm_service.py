@@ -1,6 +1,3 @@
-"""
-LLM Service for documentation generation using Claude
-"""
 import os
 import json
 import re
@@ -10,7 +7,7 @@ from anthropic import Anthropic
 
 
 def _repo_label_from_collection_name(collection_name: str) -> str:
-    """Collection name is org_org_repo_branch; return human-readable repo label (e.g. neurocode-python)."""
+    
     if not (collection_name or "").strip():
         return "other"
     parts = (collection_name or "").strip().split("_")
@@ -24,7 +21,7 @@ def _repo_label_from_collection_name(collection_name: str) -> str:
 
 
 def _chunk_repo_label(chunk: Dict[str, Any], target_repo_name: str) -> str:
-    """Return repo label for a chunk: target repo name or derived from _collection for other repos."""
+    
     coll = chunk.get("_collection")
     if not coll:
         return target_repo_name or "repository"
@@ -32,7 +29,7 @@ def _chunk_repo_label(chunk: Dict[str, Any], target_repo_name: str) -> str:
 
 
 def _other_repos_instruction() -> str:
-    """Instruction to add to the system prompt when context includes chunks from other repos."""
+    
     return (
         "\n\n**Cross-repository context:** Some code chunks above are from the **target repository** (the one being documented); "
         "others are top-k relevant chunks from **other repositories** in the same organization. Use your judgment: "
@@ -44,7 +41,7 @@ def _other_repos_instruction() -> str:
 def _enforce_max_connections_per_class(
     relationships: List[Dict[str, Any]], max_per_class: int = 3
 ) -> List[Dict[str, Any]]:
-    """Drop relationships so no class has more than max_per_class connections (in + out)."""
+    
     if not relationships:
         return relationships
     rels = list(relationships)
@@ -80,7 +77,7 @@ def _enforce_max_connections_per_class(
 
 
 class LLMService:
-    """Service for generating documentation using Claude"""
+    
     
     def __init__(self):
         api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -88,10 +85,10 @@ class LLMService:
             raise ValueError("ANTHROPIC_API_KEY environment variable is required")
         
         self.client = Anthropic(api_key=api_key)
-        # Model names can be configured via environment variables.
-        # Falls back to the default Claude Haiku model if not set.
-        self.model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")  # Premium model for main generation
-        self.model_fast = os.getenv("ANTHROPIC_MODEL_FAST", self.model)  # Cheaper model for simple tasks (~10x cheaper)
+                                                                  
+                                                                  
+        self.model = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")                                     
+        self.model_fast = os.getenv("ANTHROPIC_MODEL_FAST", self.model)                                                 
 
     def chat_with_context(
         self,
@@ -100,18 +97,7 @@ class LLMService:
         user_message: str,
         max_tokens: int = 4096,
     ) -> str:
-        """
-        Chat with conversation history and a system prompt (e.g. RAG context).
-
-        Args:
-            system_prompt: System message (e.g. instructions + retrieved code chunks).
-            conversation_history: List of {"role": "user"|"assistant", "content": str}.
-            user_message: The new user message to respond to.
-            max_tokens: Max tokens for the response.
-
-        Returns:
-            The assistant's reply text.
-        """
+        
         messages: List[Dict[str, str]] = []
         for turn in conversation_history:
             role = turn.get("role")
@@ -135,10 +121,7 @@ class LLMService:
         organization_name: str,
         repo_contexts_text: str,
     ) -> Dict[str, Any]:
-        """
-        Generate suggested onboarding learning paths (4-8 paths, 7-10 modules each)
-        from RAG-retrieved repo context. Returns list of paths with ids; grounded-only.
-        """
+        
         import uuid as _uuid
         system_prompt = """You are an expert at onboarding new developers. You will be given an organization name and, for each repository, real content retrieved from the codebase (RAG chunks). Your job is to suggest onboarding learning paths.
 
@@ -221,11 +204,7 @@ Each path: title, summaryDescription (1-2 sentences), modules (7-10 items: name,
         modules: List[Dict[str, Any]],
         context_chunks: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """
-        Generate full onboarding path documentation (like generate_structured_documentation).
-        One section per module; descriptions grounded in code context.
-        Returns: { "documentation": { "description", "sections" }, "code_reference_ids": [] }
-        """
+        
         context_parts = []
         for i, chunk in enumerate(context_chunks, 1):
             meta = chunk.get("metadata", {})
@@ -296,17 +275,7 @@ Generate the JSON object with "documentation" (description + sections) and "code
         context_chunks: List[Dict[str, Any]],
         repo_name: str = "repository"
     ) -> str:
-        """
-        Generate documentation using Claude with RAG context (legacy method)
         
-        Args:
-            prompt: User's query/prompt
-            context_chunks: List of relevant code chunks from vector search
-            repo_name: Name of the repository
-        
-        Returns:
-            Generated documentation text
-        """
         result = self.generate_structured_documentation(prompt, context_chunks, repo_name)
         return result.get("documentation", "")
     
@@ -316,20 +285,8 @@ Generate the JSON object with "documentation" (description + sections) and "code
         context_chunks: List[Dict[str, Any]],
         repo_name: str = "repository"
     ) -> Dict[str, Any]:
-        """
-        Generate structured documentation with code references and glossary using Claude
         
-        Args:
-            prompt: User's query/prompt
-            context_chunks: List of relevant code chunks from vector search
-            repo_name: Name of the repository
-            
-        Returns:
-            Dictionary with:
-            - documentation: Main documentation content (markdown)
-            - code_references: List of code reference objects
-        """
-        # Build context from chunks with enhanced metadata
+                                                          
         context_parts = []
         for i, chunk in enumerate(context_chunks, 1):
             file_path = chunk.get("metadata", {}).get("file_path", "unknown")
@@ -340,7 +297,7 @@ Generate the JSON object with "documentation" (description + sections) and "code
             end_line = chunk.get("metadata", {}).get("end_line", 0)
             content = chunk.get("content", "")
             repo_label = _chunk_repo_label(chunk, repo_name)
-            # Build detailed header with all metadata
+                                                     
             header = f"--- Code Chunk {i} ---\n"
             header += f"Repository: {repo_label}\n"
             header += f"File: {file_path}\n"
@@ -356,7 +313,7 @@ Generate the JSON object with "documentation" (description + sections) and "code
         
         context = "\n".join(context_parts)
         
-        # Load JSON schema template
+                                   
         schema_path = Path(__file__).parent.parent / "config" / "documentation_schema.json"
         schema_template = ""
         if schema_path.exists():
@@ -368,7 +325,7 @@ Generate the JSON object with "documentation" (description + sections) and "code
             except Exception as e:
                 print(f"[LLMService] Warning: Could not load schema template: {e}")
         
-        # Build system and user messages for structured output
+                                                              
         schema_section = ""
         if schema_template:
             schema_section = f"""
@@ -470,10 +427,10 @@ Your documentation should:
 - If content is long, prioritize structure completeness over detail"""
 
         try:
-            # Use streaming for large requests (required for max_tokens > 4096)
+                                                                               
             with self.client.messages.stream(
                 model=self.model,
-                max_tokens=32000,  # Significantly increased to handle large structured output
+                max_tokens=32000,                                                             
                 system=system_prompt,
                 messages=[
                     {
@@ -482,7 +439,7 @@ Your documentation should:
                     }
                 ]
             ) as stream:
-                # Collect streamed response
+                                           
                 response_text = ""
                 for event in stream:
                     if event.type == "content_block_delta":
@@ -490,19 +447,19 @@ Your documentation should:
                             if hasattr(event.delta, 'text'):
                                 response_text += event.delta.text
                     elif event.type == "message_stop":
-                        # Message complete
+                                          
                         break
             
-            # response_text now contains the full response
-            # Try to parse JSON from response
+                                                          
+                                             
             import json
             import re
             
             def extract_json_from_text(text):
-                """Extract and clean JSON from text, handling markdown code blocks"""
+                
                 cleaned_text = text.strip()
                 
-                # Remove markdown code block markers
+                                                    
                 if cleaned_text.startswith("```json"):
                     cleaned_text = cleaned_text[7:].strip()
                 elif cleaned_text.startswith("```"):
@@ -514,9 +471,9 @@ Your documentation should:
                 return cleaned_text
             
             def sanitize_control_characters(json_str):
-                """Escape invalid control characters in JSON strings"""
-                # Try to fix control characters in string values
-                # Control characters (0x00-0x1F) need to be escaped
+                
+                                                                
+                                                                   
                 
                 result = []
                 i = 0
@@ -527,32 +484,32 @@ Your documentation should:
                     char = json_str[i]
                     
                     if escape_next:
-                        # Next character is escaped, so include it as-is
+                                                                        
                         result.append(char)
                         escape_next = False
                     elif char == '\\':
-                        # Escape sequence - check if it's already escaping something
+                                                                                    
                         result.append(char)
                         escape_next = True
                     elif char == '"':
-                        # Check if this quote is escaped by counting backslashes
-                        # Count consecutive backslashes before this quote
+                                                                                
+                                                                         
                         backslash_count = 0
                         j = i - 1
                         while j >= 0 and json_str[j] == '\\':
                             backslash_count += 1
                             j -= 1
                         
-                        # If even number of backslashes (or zero), quote is not escaped
+                                                                                       
                         if backslash_count % 2 == 0:
                             in_string = not in_string
                         result.append(char)
                     elif in_string:
-                        # Inside a string value
-                        # Check if it's a control character (0x00-0x1F)
+                                               
+                                                                       
                         char_code = ord(char)
                         if char_code < 32:
-                            # Control character - escape it
+                                                           
                             if char == '\n':
                                 result.append('\\n')
                             elif char == '\r':
@@ -560,12 +517,12 @@ Your documentation should:
                             elif char == '\t':
                                 result.append('\\t')
                             else:
-                                # Other control characters - escape as unicode
+                                                                              
                                 result.append(f'\\u{char_code:04x}')
                         else:
                             result.append(char)
                     else:
-                        # Outside string - keep as-is
+                                                     
                         result.append(char)
                     
                     i += 1
@@ -573,66 +530,66 @@ Your documentation should:
                 return ''.join(result)
             
             def fix_truncated_json(json_str):
-                """Attempt to fix truncated JSON by closing open structures"""
-                # Count open/close braces and brackets
+                
+                                                      
                 open_braces = json_str.count('{')
                 close_braces = json_str.count('}')
                 open_brackets = json_str.count('[')
                 close_brackets = json_str.count(']')
                 
-                # Find the last complete structure
+                                                  
                 fixed = json_str
                 
-                # If we're in the middle of a string, try to close it
+                                                                     
                 if json_str.count('"') % 2 != 0:
-                    # Find the last unclosed quote and close the string
+                                                                       
                     last_quote = json_str.rfind('"')
                     if last_quote > 0:
-                        # Check if we're in a string value (not a key)
+                                                                      
                         before_quote = json_str[:last_quote]
-                        # Simple heuristic: if there's a colon before the quote, it's likely a value
+                                                                                                    
                         if ':' in before_quote[-50:]:
                             fixed = json_str[:last_quote+1] + '"'
                 
-                # Close open arrays
+                                   
                 for _ in range(open_brackets - close_brackets):
                     fixed += ']'
                 
-                # Close open objects
+                                    
                 for _ in range(open_braces - close_braces):
                     fixed += '}'
                 
                 return fixed
             
             def extract_partial_data(json_str):
-                """Extract what we can from incomplete JSON"""
+                
                 partial_data = {
                     "documentation": {"sections": []},
                     "code_reference_ids": []
                 }
                 
                 try:
-                    # Try to extract code_references array
+                                                          
                     code_refs_match = re.search(r'"code_references"\s*:\s*\[(.*?)\]', json_str, re.DOTALL)
                     if code_refs_match:
                         refs_content = code_refs_match.group(1)
-                        # Extract quoted strings
+                                                
                         ref_ids = re.findall(r'"([^"]+)"', refs_content)
                         partial_data["code_reference_ids"] = ref_ids
                     
-                    # Try to extract glossary_terms array
+                                                         
                     glossary_match = re.search(r'"glossary_terms"\s*:\s*\[(.*?)\]', json_str, re.DOTALL)
                     if glossary_match:
                         terms_content = glossary_match.group(1)
-                        # Extract quoted strings
+                                                
                         term_ids = re.findall(r'"([^"]+)"', terms_content)
                         partial_data["glossary_term_ids"] = term_ids
                     
-                    # Try to extract sections
+                                             
                     sections_match = re.search(r'"sections"\s*:\s*\[(.*?)(?:\]|$)', json_str, re.DOTALL)
                     if sections_match:
                         sections_content = sections_match.group(1)
-                        # Try to find section objects
+                                                     
                         section_objects = re.findall(r'\{\s*"id"\s*:\s*"([^"]+)"\s*,\s*"title"\s*:\s*"([^"]+)"', sections_content)
                         if section_objects:
                             sections = []
@@ -640,7 +597,7 @@ Your documentation should:
                                 sections.append({
                                     "id": section_id,
                                     "title": title,
-                                    "description": "",  # Description might be truncated
+                                    "description": "",                                  
                                     "code_references": []
                                 })
                             partial_data["documentation"]["sections"] = sections
@@ -649,19 +606,19 @@ Your documentation should:
                 
                 return partial_data
             
-            # Clean the response text
+                                     
             cleaned_text = extract_json_from_text(response_text)
             
-            # Try to find JSON object
+                                     
             json_match = re.search(r'\{.*', cleaned_text, re.DOTALL)
             if json_match:
                 json_str = json_match.group(0)
                 
-                # First, try to parse as-is
+                                           
                 try:
                     parsed = json.loads(json_str)
                     
-                    # Extract code reference IDs
+                                                
                     code_refs = parsed.get("code_references", [])
                     code_ref_ids = []
                     for ref in code_refs:
@@ -680,7 +637,7 @@ Your documentation should:
                     print(f"[LLMService] JSON parse error: {e}")
                     print(f"[LLMService] Error at position: {e.pos if hasattr(e, 'pos') else 'unknown'}")
                     
-                    # First, try to sanitize control characters
+                                                               
                     try:
                         sanitized_json = sanitize_control_characters(json_str)
                         parsed = json.loads(sanitized_json)
@@ -694,10 +651,10 @@ Your documentation should:
                             "code_reference_ids": code_ref_ids
                         }
                     except Exception as sanitize_error:
-                        # If sanitization didn't work, try to fix truncated JSON
+                                                                                
                         try:
                             fixed_json = fix_truncated_json(json_str)
-                            # Also sanitize the fixed JSON
+                                                          
                             fixed_json = sanitize_control_characters(fixed_json)
                             parsed = json.loads(fixed_json)
                             
@@ -712,12 +669,12 @@ Your documentation should:
                         except Exception as fix_error:
                             print(f"[LLMService] Could not fix JSON, attempting partial extraction: {fix_error}")
                             
-                            # Last resort: extract partial data using regex
+                                                                           
                             partial_data = extract_partial_data(json_str)
                             print(f"[LLMService] Extracted partial data: {len(partial_data['code_reference_ids'])} refs, {len(partial_data['documentation']['sections'])} sections")
                             return partial_data
             else:
-                # No JSON found
+                               
                 print(f"[LLMService] No JSON object found in response")
                 return {
                     "documentation": {"sections": []},
@@ -734,18 +691,7 @@ Your documentation should:
         context_chunks: List[Dict[str, Any]],
         repo_name: str = "repository",
     ) -> Dict[str, Any]:
-        """
-        Generate System Architecture documentation as multiple sections.
-
-        Structure (order matters):
-        1. Overview (one section)
-        2. Custom sections (as many as needed) that fully address the user's prompt — detailed
-        3. Components, Data flow & communication, External dependencies,
-           Design decisions & conventions, Deployment & runtime (one section each, at the end)
-
-        Returns:
-            { "title": str, "description": str, "sections": [ { "id", "title", "description" }, ... ] }
-        """
+        
         context_parts = []
         for i, chunk in enumerate(context_chunks, 1):
             meta = chunk.get("metadata", {})
@@ -887,11 +833,7 @@ Return ONLY the JSON object with keys: title, description, sections (array of {{
         section_title: str,
         section_description: str,
     ) -> Dict[str, Any]:
-        """
-        Generate a simple flowchart for an architecture doc section: nodes (id, label, description, role) and edges.
-        Returns { "nodes": [ {"id", "label", "description", "role"}, ... ], "edges": [...] }.
-        Used at documentation generation time only; frontend displays from stored data.
-        """
+        
         system_prompt = """You produce a minimal flowchart for a single section of system architecture documentation.
 Output ONLY valid JSON with no markdown fence. The root object must have:
 - "nodes": array of 2 to 6 objects. Each node has:
@@ -961,10 +903,7 @@ Produce a simple flowchart (nodes + edges) that explains this section in 2–6 s
         repo_name: str = "repository",
         extra_instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Generate an AI-Agent .md bundle (guide + rules) as JSON matching agent_docs_bundle_schema.
-        Caller should validate with validate_agent_docs_bundle().
-        """
+        
         schema_path = Path(__file__).parent.parent / "config" / "agent_docs_bundle_schema.json"
         schema_template = ""
         if schema_path.exists():
@@ -1059,18 +998,7 @@ Return ONLY the JSON object (no ```json wrapper, no explanation)."""
         context_chunks: List[Dict[str, Any]],
         repo_name: str = "repository",
     ) -> Dict[str, Any]:
-        """
-        Generate a UML class diagram as structured JSON from RAG context.
-
-        Args:
-            prompt: User's description of what to include in the diagram.
-            context_chunks: Relevant code chunks from vector search.
-            repo_name: Repository name for the prompt.
-
-        Returns:
-            Dict with "classes" and "relationships" matching the frontend schema.
-            On parse/validation failure, returns {"error": str, "classes": [], "relationships": []}.
-        """
+        
         schema_path = Path(__file__).parent.parent / "config" / "uml_class_diagram_schema.json"
         schema_template = ""
         if schema_path.exists():
@@ -1217,10 +1145,7 @@ Produce your best UML class diagram: clear, conceptual (e.g. GitHub, Visual Tree
         context_chunks: List[Dict[str, Any]],
         repo_name: str = "repository",
     ) -> Dict[str, Any]:
-        """
-        Generate a UML sequence diagram as structured JSON from RAG context.
-        Returns lifelines (ordered), messages (ordered), and optional fragments.
-        """
+        
         schema_path = Path(__file__).parent.parent / "config" / "uml_sequence_diagram_schema.json"
         schema_template = ""
         if schema_path.exists():
@@ -1353,7 +1278,7 @@ Output ONLY the JSON object."""
                 steps = []
             if not isinstance(fragments, list):
                 fragments = []
-            # Fragment must not be first: drop fragments that include message index 0
+                                                                                     
             def fragment_ok(frag: dict) -> bool:
                 idx = frag.get("messageIndices") or []
                 return not idx or min(idx) >= 1
@@ -1382,9 +1307,9 @@ Output ONLY the JSON object."""
                     m = {k: v for k, v in m.items() if k != "opensNewActivation"}
                 valid_messages.append(m)
 
-            # Ensure every cross-lifeline call has a matching return.
-            # If a lifeline makes a new call before the previous one was returned,
-            # insert the missing return right before the new call.
+                                                                     
+                                                                                  
+                                                                  
             fixed_messages: list[dict] = []
             pending: dict[str, str] = {}
             for m in valid_messages:
@@ -1438,10 +1363,7 @@ Output ONLY the JSON object."""
         context_chunks: List[Dict[str, Any]],
         repo_name: str = "repository",
     ) -> Dict[str, Any]:
-        """
-        Generate a UML use case diagram as structured JSON from RAG context.
-        Returns systemBoundary, actors, useCases, and relationships (communication, include, extend, generalization).
-        """
+        
         schema_path = Path(__file__).parent.parent / "config" / "uml_use_case_diagram_schema.json"
         schema_template = ""
         if schema_path.exists():
@@ -1581,7 +1503,7 @@ Produce a UML use case diagram. For each actor set placement: "left" for primary
                 r["relationship"] = rel_type
                 valid_rels.append(r)
 
-            # Cap: each use case at most 3 relationships (as source or target). Prefer communication > include > extend > generalization.
+                                                                                                                                         
             _priority = {"communication": 0, "include": 1, "extend": 2, "generalization": 3}
 
             def use_case_degree(uc_id: str, rels: list) -> int:
@@ -1600,7 +1522,7 @@ Produce a UML use case diagram. For each actor set placement: "left" for primary
                     kept.discard(id(r))
             valid_rels = [r for r in valid_rels if id(r) in kept]
 
-            # Ensure no orphan: every actor and use case in at least one relationship
+                                                                                     
             connected = set()
             for r in valid_rels:
                 if isinstance(r, dict):
@@ -1641,11 +1563,7 @@ Produce a UML use case diagram. For each actor set placement: "left" for primary
         context_chunks: List[Dict[str, Any]],
         repo_name: str = "repository",
     ) -> Dict[str, Any]:
-        """
-        Generate a UML state diagram as structured JSON from RAG context.
-        Returns initialStates (exactly one), finalStates (one or more), states, optional compositeStates, and transitions.
-        Transitions may have label and optional eventParameter (displayed as "event (eventParameter)").
-        """
+        
         schema_path = Path(__file__).parent.parent / "config" / "uml_state_diagram_schema.json"
         schema_template = ""
         if schema_path.exists():
@@ -1764,7 +1682,7 @@ Produce a UML state diagram. One initial state, one or more final states, states
             if not isinstance(transitions, list):
                 transitions = []
 
-            # Enforce exactly one initial
+                                         
             if len(initial_states) == 0:
                 initial_states = [{"id": "initial"}]
             else:
@@ -1772,7 +1690,7 @@ Produce a UML state diagram. One initial state, one or more final states, states
             if not initial_states[0].get("id"):
                 initial_states[0]["id"] = "initial"
 
-            # At least one final
+                                
             if len(final_states) == 0:
                 final_states = [{"id": "final"}]
             for i, f in enumerate(final_states):
@@ -1800,7 +1718,7 @@ Produce a UML state diagram. One initial state, one or more final states, states
                     continue
                 valid_transitions.append(t)
 
-            # Enforce max 2 outgoing transitions per state (keeps the diagram readable)
+                                                                                       
             out_count: dict[str, int] = {}
             capped_transitions = []
             for t in valid_transitions:
@@ -1811,11 +1729,11 @@ Produce a UML state diagram. One initial state, one or more final states, states
                 out_count[src] = count + 1
                 capped_transitions.append(t)
 
-            # Individualize final states: if more than one transition targets the same
-            # final state, create a unique copy of that final state for each extra source
-            # so every state gets its own dedicated terminal node.
+                                                                                      
+                                                                                         
+                                                                  
             final_id_set = {f.get("id") for f in final_states if isinstance(f, dict) and f.get("id")}
-            # Map final_id -> list of transition indices that point to it
+                                                                         
             final_incoming: dict[str, list[int]] = {}
             for idx, t in enumerate(capped_transitions):
                 tgt = t.get("target", "")
@@ -1827,10 +1745,10 @@ Produce a UML state diagram. One initial state, one or more final states, states
                 fid = f.get("id", "")
                 incomers = final_incoming.get(fid, [])
                 if len(incomers) <= 1:
-                    # Only one (or zero) incoming transitions — keep as-is
+                                                                          
                     individualized_finals.append(f)
                 else:
-                    # Give each incoming transition its own final state node
+                                                                            
                     for seq, trans_idx in enumerate(incomers):
                         new_id = fid if seq == 0 else f"{fid}-{seq}"
                         individualized_finals.append({"id": new_id})
@@ -1875,11 +1793,7 @@ Produce a UML state diagram. One initial state, one or more final states, states
         existing_titles_descriptions: List[Dict[str, str]],
         repo_name: str = "repository",
     ) -> Dict[str, Any]:
-        """
-        Generate a unique, detailed title and description for a UML diagram.
-        Ensures the new title and description are distinct from existing diagrams.
-        Returns {"title": str, "description": str} or {"error": str}.
-        """
+        
         type_label = {
             "class": "class",
             "sequence": "sequence",
@@ -1951,21 +1865,11 @@ Produce a unique, detailed title and description for this diagram. Output ONLY t
         parameters: List[Dict[str, Any]],
         code_context: str
     ) -> Dict[str, str]:
-        """
-        Generate descriptions for multiple parameters in a single batch call.
-        Uses cheaper Haiku model for cost optimization.
         
-        Args:
-            parameters: List of dicts with 'name', 'full_definition', 'function_name'
-            code_context: Relevant code context (truncated)
-        
-        Returns:
-            Dict mapping parameter names to descriptions
-        """
         if not parameters:
             return {}
         
-        # Build parameter list for prompt
+                                         
         param_list = "\n".join([
             f"- {p['name']}: {p.get('full_definition', p['name'])} (from function: {p.get('function_name', 'unknown')})"
             for p in parameters
@@ -1990,8 +1894,8 @@ Do not include any other text, just the JSON object."""
         
         try:
             response = self.client.messages.create(
-                model=self.model_fast,  # Use cheaper model
-                max_tokens=1000,  # Enough for multiple descriptions
+                model=self.model_fast,                     
+                max_tokens=1000,                                    
                 messages=[{
                     "role": "user",
                     "content": prompt
@@ -2001,7 +1905,7 @@ Do not include any other text, just the JSON object."""
             if response.content and len(response.content) > 0:
                 response_text = response.content[0].text.strip()
                 
-                # Extract JSON from response
+                                            
                 json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if json_match:
                     try:
@@ -2010,11 +1914,11 @@ Do not include any other text, just the JSON object."""
                     except json.JSONDecodeError:
                         print(f"[LLMService] Failed to parse parameter descriptions JSON")
                 
-                # Fallback: try to extract descriptions line by line
+                                                                    
                 descriptions = {}
                 for param in parameters:
                     param_name = param['name']
-                    # Try to find description in response
+                                                         
                     pattern = rf'["\']?{re.escape(param_name)}["\']?\s*:\s*["\']([^"\']+)["\']'
                     match = re.search(pattern, response_text, re.IGNORECASE)
                     if match:
@@ -2024,41 +1928,32 @@ Do not include any other text, just the JSON object."""
                 
                 return descriptions
             else:
-                # Fallback: generate simple descriptions
+                                                        
                 return {p['name']: f"The {p['name'].replace('_', ' ')} parameter." for p in parameters}
                 
         except Exception as e:
             print(f"[LLMService] Error generating batch parameter descriptions: {e}")
-            # Fallback: simple descriptions
+                                           
             return {p['name']: f"The {p['name'].replace('_', ' ')} parameter." for p in parameters}
     
     def generate_code_reference_descriptions_batch(
         self,
         code_references: List[Dict[str, Any]]
     ) -> Dict[str, str]:
-        """
-        Generate descriptions for multiple code references in a single batch call.
-        Uses cheaper Haiku model for cost optimization.
         
-        Args:
-            code_references: List of dicts with 'name', 'type', 'file_path', 'code'
-        
-        Returns:
-            Dict mapping reference names to descriptions
-        """
         if not code_references:
             return {}
         
-        # Build reference list for prompt
+                                         
         ref_list = "\n".join([
             f"- {ref['name']} ({ref.get('type', 'unknown')}) from {ref.get('file_path', 'unknown')}"
             for ref in code_references
         ])
         
-        # Combine code contexts (truncated)
+                                           
         code_contexts = []
         for ref in code_references:
-            code = ref.get('code', '')[:1000]  # Limit each to 1000 chars
+            code = ref.get('code', '')[:1000]                            
             code_contexts.append(f"{ref['name']}:\n{code}")
         combined_context = "\n\n".join(code_contexts)
         
@@ -2099,8 +1994,8 @@ Do not include any other text, just the JSON object."""
         
         try:
             response = self.client.messages.create(
-                model=self.model_fast,  # Use cheaper model
-                max_tokens=2000,  # Enough for multiple descriptions
+                model=self.model_fast,                     
+                max_tokens=2000,                                    
                 messages=[{
                     "role": "user",
                     "content": prompt
@@ -2110,7 +2005,7 @@ Do not include any other text, just the JSON object."""
             if response.content and len(response.content) > 0:
                 response_text = response.content[0].text.strip()
                 
-                # Extract JSON from response
+                                            
                 json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
                 if json_match:
                     try:
@@ -2119,17 +2014,17 @@ Do not include any other text, just the JSON object."""
                     except json.JSONDecodeError:
                         print(f"[LLMService] Failed to parse code reference descriptions JSON")
                 
-                # Fallback: try to extract descriptions
+                                                       
                 descriptions = {}
                 for ref in code_references:
                     ref_name = ref['name']
-                    # Try to find description in response
+                                                         
                     pattern = rf'["\']?{re.escape(ref_name)}["\']?\s*:\s*["\']([^"\']+)["\']'
                     match = re.search(pattern, response_text, re.IGNORECASE)
                     if match:
                         descriptions[ref_name] = match.group(1).strip()
                     else:
-                        # Fallback template
+                                           
                         ref_type = ref.get('type', 'function')
                         if ref_type == 'class':
                             descriptions[ref_name] = "A class that provides functionality for managing operations and state within the application."
@@ -2140,7 +2035,7 @@ Do not include any other text, just the JSON object."""
                 
                 return descriptions
             else:
-                # Fallback: generate template descriptions
+                                                          
                 descriptions = {}
                 for ref in code_references:
                     ref_type = ref.get('type', 'function')
@@ -2154,7 +2049,7 @@ Do not include any other text, just the JSON object."""
                 
         except Exception as e:
             print(f"[LLMService] Error generating batch code reference descriptions: {e}")
-            # Fallback: template descriptions
+                                             
             descriptions = {}
             for ref in code_references:
                 ref_type = ref.get('type', 'function')
@@ -2172,10 +2067,7 @@ Do not include any other text, just the JSON object."""
         batch_size: int = 8,
         max_content_chars: int = 450,
     ) -> None:
-        """
-        Add one-sentence summary and retrieval keywords to each chunk's metadata.
-        Uses Claude in batches to minimize tokens. Mutates chunks in place.
-        """
+        
         if not chunks:
             return
         for b in range(0, len(chunks), batch_size):

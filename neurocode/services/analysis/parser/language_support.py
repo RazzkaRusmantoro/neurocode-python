@@ -1,10 +1,7 @@
-"""
-Language detection and grammar loading for Tree-sitter
-"""
 from tree_sitter import Language, Parser
 from typing import Optional, Dict
 
-# Import language grammars
+                          
 try:
     import tree_sitter_python as tspython
 except ImportError:
@@ -45,16 +42,16 @@ try:
 except ImportError:
     tsc = None
 
-# Language grammar cache
+                        
 _grammar_cache: Dict[str, Language] = {}
 
-# File extension to language mapping
+                                    
 EXTENSION_TO_LANGUAGE: Dict[str, str] = {
     '.py': 'python',
     '.js': 'javascript',
     '.jsx': 'javascript',
     '.ts': 'typescript',
-    '.tsx': 'tsx',  # TSX is a different grammar
+    '.tsx': 'tsx',                              
     '.java': 'java',
     '.go': 'go',
     '.rs': 'rust',
@@ -66,30 +63,21 @@ EXTENSION_TO_LANGUAGE: Dict[str, str] = {
     '.hpp': 'cpp',
 }
 
-# Supported languages
+                     
 SUPPORTED_LANGUAGES = {
     'python', 'javascript', 'typescript', 'tsx', 'java', 'go', 'rust', 'cpp', 'c'
 }
 
 
 def detect_language(file_path: str, language_hint: Optional[str] = None) -> Optional[str]:
-    """
-    Detect language from file path or hint
     
-    Args:
-        file_path: Path to the file
-        language_hint: Optional language hint (e.g., from GitHub API)
-    
-    Returns:
-        Language name or None if not supported
-    """
-    # Use hint if provided and valid
+                                    
     if language_hint:
         lang_lower = language_hint.lower()
         if lang_lower in SUPPORTED_LANGUAGES:
             return lang_lower
     
-    # Detect from file extension
+                                
     file_path_lower = file_path.lower()
     for ext, lang in EXTENSION_TO_LANGUAGE.items():
         if file_path_lower.endswith(ext):
@@ -99,31 +87,23 @@ def detect_language(file_path: str, language_hint: Optional[str] = None) -> Opti
 
 
 def is_language_supported(language: str) -> bool:
-    """Check if language is supported"""
+    
     return language.lower() in SUPPORTED_LANGUAGES
 
 
 def get_language_grammar(language: str) -> Optional[Language]:
-    """
-    Get Tree-sitter grammar for a language
     
-    Args:
-        language: Language name
-    
-    Returns:
-        Language grammar or None if not found
-    """
     lang_lower = language.lower()
     
-    # Check cache first
+                       
     if lang_lower in _grammar_cache:
         return _grammar_cache[lang_lower]
     
-    # Load grammar based on language
+                                    
     grammar = None
     try:
         if lang_lower == 'python' and tspython:
-            # Try different ways to access the language
+                                                       
             if hasattr(tspython, 'language'):
                 grammar = tspython.language() if callable(tspython.language) else tspython.language
             elif hasattr(tspython, 'language_path'):
@@ -131,7 +111,7 @@ def get_language_grammar(language: str) -> Optional[Language]:
         elif lang_lower == 'javascript' and tsjavascript:
             if hasattr(tsjavascript, 'language'):
                 js_grammar = tsjavascript.language() if callable(tsjavascript.language) else tsjavascript.language
-                # Don't wrap if it's already a Language object
+                                                              
                 if isinstance(js_grammar, Language):
                     grammar = js_grammar
                 else:
@@ -139,7 +119,7 @@ def get_language_grammar(language: str) -> Optional[Language]:
             elif hasattr(tsjavascript, 'language_path'):
                 grammar = Language(tsjavascript.language_path)
         elif lang_lower == 'typescript':
-            # Try TypeScript first, fallback to JavaScript
+                                                          
             if tstypescript:
                 try:
                     if hasattr(tstypescript, 'typescript') and callable(tstypescript.typescript):
@@ -147,7 +127,7 @@ def get_language_grammar(language: str) -> Optional[Language]:
                     elif hasattr(tstypescript, 'language') and callable(tstypescript.language):
                         grammar = Language(tstypescript.language())
                     else:
-                        # Try accessing as attribute
+                                                    
                         ts_grammar = getattr(tstypescript, 'typescript', None) or getattr(tstypescript, 'language', None)
                         if ts_grammar:
                             grammar = Language(ts_grammar) if not isinstance(ts_grammar, Language) else ts_grammar
@@ -156,12 +136,12 @@ def get_language_grammar(language: str) -> Optional[Language]:
                 except Exception as e:
                     grammar = None
             
-            # Fallback to JavaScript if TypeScript fails
+                                                        
             if not grammar and tsjavascript:
                 try:
                     if hasattr(tsjavascript, 'language'):
                         js_grammar = tsjavascript.language() if callable(tsjavascript.language) else tsjavascript.language
-                        # Don't wrap if it's already a Language object
+                                                                      
                         if isinstance(js_grammar, Language):
                             grammar = js_grammar
                         else:
@@ -169,14 +149,14 @@ def get_language_grammar(language: str) -> Optional[Language]:
                     elif hasattr(tsjavascript, 'language_path'):
                         grammar = Language(tsjavascript.language_path)
                     if grammar:
-                        # Only log fallback once per language
+                                                             
                         if lang_lower not in _grammar_cache:
                             print(f"[LanguageSupport] TypeScript grammar not available, using JavaScript as fallback")
                 except Exception:
                     grammar = None
         
         elif lang_lower == 'tsx':
-            # Try TSX first, fallback to JavaScript
+                                                   
             if tstypescript:
                 try:
                     if hasattr(tstypescript, 'tsx') and callable(tstypescript.tsx):
@@ -190,12 +170,12 @@ def get_language_grammar(language: str) -> Optional[Language]:
                 except Exception:
                     grammar = None
             
-            # Fallback to JavaScript if TSX fails
+                                                 
             if not grammar and tsjavascript:
                 try:
                     if hasattr(tsjavascript, 'language'):
                         js_grammar = tsjavascript.language() if callable(tsjavascript.language) else tsjavascript.language
-                        # Don't wrap if it's already a Language object
+                                                                      
                         if isinstance(js_grammar, Language):
                             grammar = js_grammar
                         else:
@@ -203,7 +183,7 @@ def get_language_grammar(language: str) -> Optional[Language]:
                     elif hasattr(tsjavascript, 'language_path'):
                         grammar = Language(tsjavascript.language_path)
                     if grammar:
-                        # Only log fallback once per language
+                                                             
                         if lang_lower not in _grammar_cache:
                             print(f"[LanguageSupport] TSX grammar not available, using JavaScript as fallback")
                 except Exception:
@@ -234,12 +214,12 @@ def get_language_grammar(language: str) -> Optional[Language]:
             elif hasattr(tsc, 'language_path'):
                 grammar = Language(tsc.language_path)
         
-        # Cache the grammar
+                           
         if grammar:
             _grammar_cache[lang_lower] = grammar
         
     except Exception as e:
-        # Error already handled in TypeScript/TSX blocks above
+                                                              
         if lang_lower not in ('typescript', 'tsx'):
             print(f"[LanguageSupport] Failed to load grammar for {language}: {e}")
         return grammar
@@ -248,6 +228,6 @@ def get_language_grammar(language: str) -> Optional[Language]:
 
 
 def initialize_parser() -> Parser:
-    """Initialize a new Tree-sitter parser"""
+    
     return Parser()
 

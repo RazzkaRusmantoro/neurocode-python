@@ -1,6 +1,3 @@
-"""
-Documentation generation endpoints
-"""
 from fastapi import APIRouter, HTTPException
 from typing import Optional, List, Dict, Any
 import re
@@ -27,7 +24,7 @@ from neurocode.models.agent_docs import AgentDocsBundle
 
 router = APIRouter()
 
-# Section titles (normalized) for which we do NOT generate a flowchart diagram
+                                                                              
 ARCH_DIAGRAM_EXCLUDE = {
     "deployment and runtime",
     "deployment & runtime",
@@ -39,7 +36,7 @@ ARCH_DIAGRAM_EXCLUDE = {
     "overview",
 }
 
-# Section that gets a class diagram (same generation as UML class diagram) instead of flowchart
+                                                                                               
 ARCH_DIAGRAM_CLASS_SECTION = {"components"}
 
 
@@ -64,7 +61,7 @@ def _enrich_architecture_diagrams(
     context_chunks: Optional[List[Dict[str, Any]]] = None,
     repo_name: Optional[str] = None,
 ) -> None:
-    """Add a 'diagram' to each section/subsection. Components section gets class diagram (same as UML); others get flowchart. Done at doc generation time."""
+    
     sections = documentation.get("sections") or []
     for section in sections:
         title = section.get("title") or ""
@@ -138,13 +135,7 @@ def _enrich_architecture_diagrams(
 
 
 def _agent_bundle_to_documentation(bundle: AgentDocsBundle) -> Dict[str, Any]:
-    """
-    Convert a validated agent docs bundle into the standard documentation shape,
-    where **each generated .md file is shown as a copyable code snippet**.
-
-    - Section 1 is the main GUIDE.md
-    - Sections 2..N are individual rule .md files
-    """
+    
 
     guide = bundle.guide
 
@@ -159,7 +150,7 @@ def _agent_bundle_to_documentation(bundle: AgentDocsBundle) -> Dict[str, Any]:
 
     sections: List[Dict[str, Any]] = []
 
-    # Section 1: GUIDE.md as a full .md file inside a code block
+                                                                
     guide_role = "Main AI guide for this repository (load this first)."
     guide_context = guide.when_to_use.strip()
 
@@ -206,7 +197,7 @@ def _agent_bundle_to_documentation(bundle: AgentDocsBundle) -> Dict[str, Any]:
         }
     )
 
-    # Sections 2..N: Each rule as its own .md file inside a code block
+                                                                      
     for idx, rule in enumerate(bundle.rules, start=2):
         rule_role = rule.role or f"Rule for {rule.name}"
         rule_context = rule.description.strip()
@@ -224,7 +215,7 @@ def _agent_bundle_to_documentation(bundle: AgentDocsBundle) -> Dict[str, Any]:
                 rule_lines.append(f"- {p}")
             rule_lines.append("")
 
-        # Main playbook body (already markdown)
+                                               
         rule_lines.append(rule.body.strip())
 
         if rule.input:
@@ -264,10 +255,7 @@ def _get_other_repo_chunks(
     query: str,
     chunks_per_repo: int = 5,
 ) -> List[Dict[str, Any]]:
-    """
-    Fetch up to chunks_per_repo chunks from each other repo in the same org (collections
-    that exist and have chunks). Used for multi-repo RAG context.
-    """
+    
     if not vectorizer or not (org_short_id or "").strip():
         return []
     org_short_id = (org_short_id or "").strip()
@@ -298,26 +286,7 @@ def _get_other_repo_chunks(
 
 @router.post("/api/generate-documentation")
 async def generate_documentation(request: GenerateDocumentationRequest):
-    """
-    Generate documentation for a GitHub repository
     
-    Full pipeline:
-    1. Fetch files from GitHub
-    2. Parse code (extract symbols, dependencies, calls)
-    3. Chunk code (create semantic chunks for vectorization)
-    4. Save results locally
-    
-    Args:
-        request: GenerateDocumentationRequest with:
-            - github_token: GitHub access token
-            - repo_full_name: Repository full name (e.g., "owner/repo")
-            - branch: Branch name (default: "main")
-            - scope: Documentation scope (default: "repository")
-            - target: Optional target path/module
-    
-    Returns:
-        Documentation generation results with saved file paths
-    """
     try:
         print("\n" + "="*60)
         print("DOCUMENTATION GENERATION PIPELINE")
@@ -359,19 +328,7 @@ async def generate_documentation(request: GenerateDocumentationRequest):
 
 @router.post("/api/generate-docs-rag")
 async def generate_docs_rag(request: GenerateDocsRAGRequest):
-    """
-    Generate documentation using RAG (Retrieval Augmented Generation)
     
-    Full pipeline (same as generate-documentation, then RAG):
-    1. Fetch files from GitHub
-    2. Parse code (extract symbols, dependencies, calls)
-    3. Chunk code (create semantic chunks for vectorization)
-    4. Save results locally
-    5. Vectorize chunks (if not already done)
-    6. Search vector DB for relevant chunks based on user prompt
-    7. Generate documentation with Claude using retrieved chunks
-    8. Return generated documentation
-    """
     try:
         if not llm_service:
             raise HTTPException(
@@ -393,7 +350,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
                 detail="organization_short_id and repository_name are required for collection naming",
             )
 
-        # Resolve branch (same as index pipeline) so collection name matches
+                                                                            
         branch = request.branch or "main"
         if not branch.strip() or branch.strip().lower() in ("main", "master"):
             resolved = await github_fetcher.get_default_branch(
@@ -412,7 +369,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         existing_count = vectorizer.vector_db.get_collection_count(collection_name)
 
         if existing_count > 0:
-            # Collection already exists: skip index pipeline, use existing vectors
+                                                                                  
             print(f"\n[Skip] Collection '{collection_name}' exists ({existing_count} chunks). Retrieving only.")
             result = {
                 "success": True,
@@ -431,7 +388,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
                 },
             }
         else:
-            # Steps 1–5: Run full index pipeline (fetch → parse → chunk → enrich → save → vectorize)
+                                                                                                    
             result = await run_index_pipeline(
                 github_token=request.github_token,
                 repo_full_name=request.repo_full_name,
@@ -459,11 +416,11 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
 
         index_metadata = result.get("metadata", {})
 
-        # Step 6: Search vector DB for relevant chunks based on prompt
+                                                                      
         print(f"\n[Step 6/10] Searching vector DB for relevant chunks...")
         print(f"Query: {request.prompt}")
         
-        # Search vector DB for relevant chunks (target repo)
+                                                            
         search_results = vectorizer.search(
             collection_name=collection_name,
             query=request.prompt,
@@ -476,7 +433,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
                 detail=f"No chunks found in collection '{collection_name}'"
             )
         
-        # Multi-repo: add up to 5 chunks per other org repo (if they exist and have collections)
+                                                                                                
         other_chunks = _get_other_repo_chunks(
             target_collection_name=collection_name,
             org_short_id=request.organization_short_id or "",
@@ -489,7 +446,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         else:
             print(f"✓ Found {len(search_results)} relevant chunks")
 
-        # Collect unique file paths from chunks used in generation (for sync/affected-files tracking)
+                                                                                                     
         _file_paths = sorted(
             set(
                 (c.get("metadata") or {}).get("file_path", "").strip()
@@ -498,11 +455,11 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
         )
         file_paths = [p for p in _file_paths if p]
 
-        # Step 7: Generate documentation (branch: AI-Agent custom vs standard)
+                                                                              
         documentation = None
         code_reference_ids_from_llm = []
         code_reference_details = []
-        arch_result = None  # used for architecture doc title when type is architecture
+        arch_result = None                                                             
 
         if request.documentation_type == "aiAgent" and (request.ai_agent_doc_kind or "") == "custom":
             print(f"\n[Step 7/10] Generating AI-Agent docs bundle (guide + rules) with Claude...")
@@ -551,12 +508,12 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
             documentation = structured_result.get("documentation", {"sections": []})
             code_reference_ids_from_llm = structured_result.get("code_reference_ids", [])
         
-        # Validate limits
+                         
         if len(code_reference_ids_from_llm) > 15:
             print(f"  ⚠ Warning: {len(code_reference_ids_from_llm)} code references found, limiting to 15")
             code_reference_ids_from_llm = code_reference_ids_from_llm[:15]
         
-        # Extract code reference details
+                                        
         code_reference_details = []
         
         for ref_id in code_reference_ids_from_llm:
@@ -569,7 +526,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
                 file_path = metadata.get("file_path", "")
                 content = chunk.get("content", "")
                 
-                # Match by name
+                               
                 matched_name = None
                 ref_type = None
                 
@@ -584,7 +541,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
                     ref_type = "method"
                 
                 if matched_name:
-                    # Extract the actual code snippet (raw code)
+                                                                
                     code_snippet = None
                     start_line = metadata.get("start_line", 0)
                     end_line = metadata.get("end_line", 0)
@@ -594,7 +551,7 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
                         if len(lines) >= end_line:
                             code_snippet = '\n'.join(lines[start_line-1:end_line])
                     
-                    # If line-based extraction didn't work, try pattern matching
+                                                                                
                     if not code_snippet or len(code_snippet.strip()) < 10:
                         if ref_type in ["function", "method"]:
                             func_patterns = [
@@ -617,11 +574,11 @@ async def generate_docs_rag(request: GenerateDocsRAGRequest):
                                     code_snippet = match.group(0).strip()
                                     break
                     
-                    # If still no code, use the entire chunk content as fallback
+                                                                                
                     if not code_snippet or len(code_snippet.strip()) < 10:
-                        code_snippet = content[:5000]  # Limit to 5000 chars
+                        code_snippet = content[:5000]                       
                     
-                    # Extract parameters for functions/methods
+                                                              
                     parameters = []
                     if ref_type in ["function", "method"]:
                         sig_patterns = [
@@ -708,13 +665,13 @@ Description:"""
                                             })
                                 break
                     
-                    # Extract description from docstrings/comments
+                                                                  
                     description = None
                     
                     doc_patterns = [
-                        (r'/\*\*([\s\S]*?)\*/', lambda m: m.group(1)),  # JSDoc
-                        (r'"""([\s\S]*?)"""', lambda m: m.group(1)),  # Python docstring
-                        (r"'''([\s\S]*?)'''", lambda m: m.group(1)),  # Python docstring
+                        (r'/\*\*([\s\S]*?)\*/', lambda m: m.group(1)),         
+                        (r'"""([\s\S]*?)"""', lambda m: m.group(1)),                    
+                        (r"'''([\s\S]*?)'''", lambda m: m.group(1)),                    
                     ]
                     
                     for pattern, extractor in doc_patterns:
@@ -728,7 +685,7 @@ Description:"""
                                     description = doc[:800]
                                     break
                     
-                    # If no docstring or description is too short, generate a proper description
+                                                                                                
                     if not description or len(description) < 50:
                         try:
                             description_prompt = f"""Generate a concise but detailed description for this {ref_type} from the codebase.
@@ -794,13 +751,13 @@ Description:"""
                             else:
                                 description = "A method that performs operations on the class instance."
                     
-                    # Clean description - remove name prefix if present
+                                                                       
                     if description:
                         description = re.sub(r'^' + re.escape(matched_name) + r'[:\s]+', '', description, flags=re.IGNORECASE)
                         description = re.sub(r'^' + re.escape(matched_name) + r'\s+is\s+', '', description, flags=re.IGNORECASE)
                         description = description.strip()
                     
-                    # Generate signature string
+                                               
                     module_path = file_path.replace("\\", "/").rsplit("/", 1)[0] if "/" in file_path or "\\" in file_path else None
                     signature_parts = []
                     
@@ -856,9 +813,9 @@ Description:"""
                     matched = True
                     break
             
-            # If not found, try to find it in code context (might be an import, instance, or library function)
+                                                                                                              
             if not matched:
-                # Search through all chunks for any mention of this reference
+                                                                             
                 found_context = None
                 found_file = None
                 for chunk in search_results:
@@ -866,13 +823,13 @@ Description:"""
                     metadata = chunk.get("metadata", {})
                     file_path = metadata.get("file_path", "")
                     
-                    # Check if ref_id appears in the content (import, usage, assignment, etc.)
+                                                                                              
                     if ref_id in content or ref_id.replace("_", "") in content.replace("_", ""):
-                        # Try to find the context around it
+                                                           
                         lines = content.split('\n')
                         for i, line in enumerate(lines):
                             if ref_id in line or ref_id.replace("_", "") in line.replace("_", ""):
-                                # Get context (5 lines before and after)
+                                                                        
                                 start = max(0, i - 5)
                                 end = min(len(lines), i + 6)
                                 found_context = '\n'.join(lines[start:end])
@@ -881,16 +838,16 @@ Description:"""
                         if found_context:
                             break
                 
-                # Generate a better description using LLM with context
+                                                                      
                 description = None
                 if found_context:
                     try:
-                        # Extract how it's used from the documentation
+                                                                      
                         doc_context = ""
                         for section in documentation.get("sections", []):
                             desc = section.get("description", "")
                             if f"[[{ref_id}]]" in desc or ref_id in desc:
-                                # Extract the sentence mentioning it
+                                                                    
                                 sentences = desc.split('.')
                                 for sent in sentences:
                                     if ref_id in sent or f"[[{ref_id}]]" in sent:
@@ -923,7 +880,7 @@ Keep it to 2-3 sentences. Write in scikit-learn documentation style.
 Description:"""
                         
                         llm_response = llm_service.client.messages.create(
-                            model=llm_service.model_fast,  # Use cheaper model
+                            model=llm_service.model_fast,                     
                             max_tokens=200,
                             system="You are a technical documentation expert. Analyze code context and write specific, helpful descriptions.",
                             messages=[{
@@ -939,9 +896,9 @@ Description:"""
                     except Exception as e:
                         print(f"  ⚠ Failed to generate description for unmatched reference {ref_id}: {e}")
                 
-                # If still no description, try to infer from the name
+                                                                     
                 if not description or len(description) < 30:
-                    # Infer type and purpose from name
+                                                      
                     name_lower = ref_id.lower()
                     if 'model' in name_lower:
                         if 'sbert' in name_lower or 'bert' in name_lower:
@@ -977,15 +934,15 @@ Description:"""
                 })
         
         
-        # Calculate documentation length for logging
+                                                    
         doc_length = len(json.dumps(documentation))
         print(f"✓ Documentation generated ({doc_length} characters)")
         print(f"✓ Sections: {len(documentation.get('sections', []))}")
         print(f"✓ Code references: {len(code_reference_ids_from_llm)}")
         
-        # Extract title and description from documentation structure
+                                                                    
         def extract_title(doc_data: dict, prompt: str) -> str:
-            """Extract a title from documentation structure"""
+            
             sections = doc_data.get("sections", [])
             if sections and len(sections) > 0:
                 first_section = sections[0]
@@ -1021,7 +978,7 @@ Description:"""
         if doc_description:
             print(f"✓ Extracted description: {doc_description[:100]}...")
         
-        # Step 8: Upsert code references to MongoDB
+                                                   
         code_reference_ids = []
         
         if mongodb_service and request.organization_id and request.repository_id:
@@ -1070,7 +1027,7 @@ Description:"""
             else:
                 print(f"\n[Step 8/10] Missing organization_id or repository_id, skipping MongoDB upsert")
         
-        # Enrich architecture doc: flowchart per section; Components section gets class diagram (same as UML)
+                                                                                                             
         if getattr(request, "documentation_type", None) == "architecture":
             print(f"\n[Step 8b/10] Generating section diagrams (architecture: flowcharts + class diagram for Components)...")
             _enrich_architecture_diagrams(
@@ -1080,7 +1037,7 @@ Description:"""
                 repo_name=request.repo_full_name,
             )
 
-        # Step 9: Save documentation locally (for backup/reference)
+                                                                   
         print(f"\n[Step 9/10] Saving documentation to local storage...")
         doc_metadata = {
             "collection_name": collection_name,
@@ -1097,7 +1054,7 @@ Description:"""
         }
         
         def documentation_to_markdown(doc_data: dict) -> str:
-            """Convert documentation structure to markdown format"""
+            
             markdown_parts = []
             sections = doc_data.get("sections", [])
             
@@ -1137,7 +1094,7 @@ Description:"""
         
         print(f"✓ Documentation saved to: {doc_saved_paths['documentation_file']}")
         
-        # Step 10: Upload documentation to S3
+                                             
         s3_result = None
         s3_key = None
         if s3_service:
@@ -1185,7 +1142,7 @@ Description:"""
                 if s3_result.get("success"):
                     print(f"✓ Documentation uploaded to S3: {s3_result['s3_key']}")
                     print(f"  Size: {s3_result['content_size']} bytes")
-                    # MongoDB record is created by Next.js API after this returns (single doc with full schema + filePaths, needsSync, isUpdating)
+                                                                                                                                                  
                 else:
                     print(f"⚠ S3 upload failed: {s3_result.get('error')}")
         else:
@@ -1193,7 +1150,7 @@ Description:"""
         
         print("="*60 + "\n")
         
-        # Return results
+                        
         result = {
             "success": True,
             "prompt": request.prompt,
@@ -1217,7 +1174,7 @@ Description:"""
                 "s3_url": s3_result["s3_url"],
                 "content_size": s3_result["content_size"]
             }
-            # Include documentation type in response so Next.js can store in MongoDB
+                                                                                    
             result["documentation_type"] = getattr(request, "documentation_type", None)
             result["ai_agent_doc_kind"] = getattr(request, "ai_agent_doc_kind", None)
         else:
@@ -1240,17 +1197,7 @@ Description:"""
 
 @router.post("/api/get-documentation")
 async def get_documentation(request: GetDocumentationRequest):
-    """
-    Retrieve documentation content from S3
     
-    Args:
-        request: GetDocumentationRequest with:
-            - s3_key: S3 object key/path
-            - s3_bucket: Optional bucket name (uses default if not provided)
-    
-    Returns:
-        Documentation content from S3
-    """
     if s3_service is None:
         raise HTTPException(
             status_code=503,
@@ -1258,10 +1205,10 @@ async def get_documentation(request: GetDocumentationRequest):
         )
     
     try:
-        # Use provided bucket or default from service
+                                                     
         bucket = request.s3_bucket or s3_service.bucket_name
         
-        # Get documentation from S3
+                                   
         result = s3_service.get_documentation(request.s3_key)
         
         if result.get("success"):
@@ -1287,14 +1234,14 @@ async def get_documentation(request: GetDocumentationRequest):
 
 
 def _uml_slug_from_prompt(prompt: str, diagram_type: str = "class") -> str:
-    """Build a URL-safe slug from user prompt and diagram type."""
+    
     raw = (prompt or "").strip()[:60]
     slug = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-") or "diagram"
     return f"{diagram_type}-{slug}"
 
 
 def _uml_diagram_summary(diagram_type: str, diagram_data: Dict[str, Any]) -> str:
-    """Build a short text summary of diagram content for LLM title/description generation."""
+    
     if diagram_type == "class":
         classes = diagram_data.get("classes") or []
         rels = diagram_data.get("relationships") or []
@@ -1320,7 +1267,7 @@ def _uml_diagram_summary(diagram_type: str, diagram_data: Dict[str, Any]) -> str
 
 
 def _uml_unique_slug_from_title(title: str, diagram_type: str, existing_slugs: List[str]) -> str:
-    """Build a URL-safe slug from title and ensure it is unique among existing_slugs."""
+    
     raw = (title or "").strip()[:80]
     base = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-") or "diagram"
     base = f"{diagram_type}-{base}" if not base.startswith(diagram_type) else base
@@ -1334,16 +1281,13 @@ def _uml_unique_slug_from_title(title: str, diagram_type: str, existing_slugs: L
 
 
 def _log_rag(msg: str) -> None:
-    """Print RAG step so logs appear immediately."""
+    
     print(msg, flush=True)
 
 
 @router.post("/api/generate-uml")
 async def generate_uml(request: GenerateUmlRequest):
-    """
-    Generate a UML diagram (e.g. class diagram) using RAG: vector search + LLM structured output.
-    Saves to MongoDB (uml_diagrams) and uploads JSON to S3 for backup.
-    """
+    
     if not llm_service:
         raise HTTPException(
             status_code=500,
@@ -1437,7 +1381,7 @@ async def generate_uml(request: GenerateUmlRequest):
         )
     _log_rag(f"✓ Found {len(search_results)} relevant chunks")
 
-    # Collect unique file paths from chunks used in generation (for sync/affected-files tracking)
+                                                                                                 
     _uml_file_paths = sorted(
         set(
             (c.get("metadata") or {}).get("file_path", "").strip()
@@ -1535,7 +1479,7 @@ async def generate_uml(request: GenerateUmlRequest):
             "transitions": transitions,
         }
 
-    # Generate unique, detailed title and description via LLM (unique from existing diagrams)
+                                                                                             
     repo_name = request.repository_name or request.repo_full_name or "repository"
     existing_list: List[Dict[str, str]] = []
     existing_slugs: List[str] = []
@@ -1632,9 +1576,7 @@ async def get_uml_diagram(
     slug: Optional[str] = None,
     diagram_id: Optional[str] = None,
 ):
-    """
-    Get a UML diagram by id or by organization_id + repository_id + slug.
-    """
+    
     if mongodb_service is None:
         raise HTTPException(status_code=503, detail="MongoDB service not available.")
 

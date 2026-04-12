@@ -1,11 +1,3 @@
-"""
-Task Compass service: analyzes a task against indexed code to produce
-structured context (summary, caution areas, relevant files, entry points, ownership).
-
-Uses the vector index (Qdrant) for semantic search, the GitHub API for contributor
-data, and the LLM for structured analysis.
-"""
-
 import json
 import httpx
 from typing import List, Dict, Any, Optional
@@ -121,7 +113,7 @@ async def _fetch_repo_contributors(
     repo_full_name: str,
     github_token: str,
 ) -> List[Dict[str, str]]:
-    """Fetch top contributors for a repo from the GitHub API, with their real names."""
+    
     headers = {
         "Authorization": f"token {github_token}",
         "Accept": "application/vnd.github.v3+json",
@@ -192,10 +184,7 @@ async def analyze_task(
     github_token: Optional[str] = None,
     repo_full_names: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """
-    Run Task Compass analysis: search indexed code, fetch GitHub contributors,
-    then ask LLM for structured context.
-    """
+    
     collection_names = vectorizer.vector_db.list_collections_by_org_short_id(org_short_id)
     if not collection_names:
         return _empty_context(task_title)

@@ -1,9 +1,3 @@
-"""
-Visual tree builder service.
-Generates an interactive, multi-level repository tree using code parsing and LLM analysis.
-Adapted for the neurocode-python architecture: uses github_fetcher files (no git clone),
-Anthropic Claude (not OpenAI), and S3 for storage.
-"""
 import json
 import re
 import time
@@ -72,7 +66,7 @@ class TreeNode:
         return d
 
 
-# Language mapping from github_fetcher format to tree-sitter IDs
+                                                                
 _LANG_TO_TS = {
     "python": "python",
     "javascript": "javascript",
@@ -176,7 +170,7 @@ def _parse_llm_json(raw: str) -> Any:
 
 
 class TreeBuilder:
-    """Builds visual repository trees using code parsing and LLM analysis."""
+    
 
     def __init__(self, llm_client=None, model: str = "", model_fast: str = ""):
         self.client = llm_client
@@ -237,12 +231,12 @@ class TreeBuilder:
                     raise
         return ""
 
-    # ------------------------------------------------------------------
-    # Tree-sitter: parse file content into symbols
-    # ------------------------------------------------------------------
+                                                                        
+                                                  
+                                                                        
 
     def _parse_content(self, content: str, language_id: str, rel_path: str):
-        """Parse file content with tree-sitter and return (symbols, imports, source_text)."""
+        
         grammar = get_language_grammar(language_id)
         if not grammar:
             return [], [], content
@@ -325,9 +319,9 @@ class TreeBuilder:
 
         return symbols, imports, content
 
-    # ------------------------------------------------------------------
-    # Build raw code tree from github-fetcher files
-    # ------------------------------------------------------------------
+                                                                        
+                                                   
+                                                                        
 
     def _build_code_tree(self, files: List[Dict[str, Any]], repo_name: str):
         root_node = TreeNode(name=repo_name, type="folder", path=".")
@@ -377,7 +371,7 @@ class TreeBuilder:
                 "imports": file_node.dependencies[:10],
             }
 
-        # Populate cross-file usages
+                                    
         all_nodes: List[TreeNode] = []
         def _collect(n):
             all_nodes.append(n)
@@ -397,13 +391,13 @@ class TreeBuilder:
 
         return root_node, file_sources, all_file_info
 
-    # ------------------------------------------------------------------
-    # AI: generate the multi-level feature tree (two-pass)
-    # ------------------------------------------------------------------
+                                                                        
+                                                          
+                                                                        
 
     @staticmethod
     def _extract_config_content(files: List[Dict[str, Any]]) -> Dict[str, str]:
-        """Extract package.json, pyproject.toml, and similar config files for LLM context."""
+        
         targets = {
             "package.json", "pyproject.toml", "setup.py", "setup.cfg",
             "Cargo.toml", "go.mod", "composer.json", "Gemfile",
@@ -419,7 +413,7 @@ class TreeBuilder:
 
     @staticmethod
     def _measure_min_depth(tree_list: list) -> int:
-        """Return the minimum depth from root to any file/function leaf."""
+        
         def _depth(node: dict) -> int:
             if node.get("type") in ("file", "function", "class"):
                 return 0
@@ -454,7 +448,7 @@ class TreeBuilder:
             for fname, content in config_content.items():
                 config_section += f"\n{fname}:\n{content}\n"
 
-        # ── PASS 1: Generate the abstract hierarchy (no file mapping) ──
+                                                                         
 
         pass1_prompt = f"""You are an expert software architect creating a CONCEPTUAL MAP of a repository.
 Your job is to analyze the codebase and produce a DEEP, multi-level hierarchy that explains what this software does in plain English.
@@ -553,7 +547,7 @@ All file paths with symbols:
             return self._generate_feature_tree_fallback(
                 repo_name, all_rel_files, file_info, readme_content, config_section, compact_info, top_folders, root_files)
 
-        # ── Convert the structured hierarchy into the tree format ──
+                                                                     
         tree_nodes: List[dict] = []
         for domain in hierarchy["domains"]:
             if not isinstance(domain, dict):
@@ -641,7 +635,7 @@ All file paths with symbols:
                                          compact_info: list,
                                          top_folders: list,
                                          root_files: list) -> Optional[dict]:
-        """Single-pass fallback with a very explicit prompt and concrete example."""
+        
         prompt = f"""You are generating a DEEP, multi-level, feature-first repository map.
 
 The tree MUST have AT LEAST 4 LEVELS of plain-English categories BEFORE reaching any code files.
@@ -713,9 +707,9 @@ Files with symbols:
             return data
         return None
 
-    # ------------------------------------------------------------------
-    # AI: enrich file-level nodes
-    # ------------------------------------------------------------------
+                                                                        
+                                 
+                                                                        
 
     def _build_enrich_prompt(self, file_data: list) -> str:
         return f"""Analyze these source files and return enriched metadata.
@@ -855,9 +849,9 @@ Files:
                 except Exception as e:
                     print(f"[TreeBuilder] Single file enrichment failed for {fn.path}: {e!r}")
 
-    # ------------------------------------------------------------------
-    # Merge AI feature tree with real code nodes
-    # ------------------------------------------------------------------
+                                                                        
+                                                
+                                                                        
 
     @staticmethod
     def _spec_to_tree_node(spec: dict) -> TreeNode:
@@ -932,9 +926,9 @@ Files:
         for child in ai_node.children:
             TreeBuilder._graft_real_code(child, file_lookup)
 
-    # ------------------------------------------------------------------
-    # Fallback descriptions
-    # ------------------------------------------------------------------
+                                                                        
+                           
+                                                                        
 
     @staticmethod
     def ensure_fallback_descriptions(root: TreeNode):
@@ -1037,23 +1031,13 @@ Files:
             return f"Class '{base}' defined in '{n.path or 'unknown'}'."
         return n.description or base
 
-    # ------------------------------------------------------------------
-    # Main entry point
-    # ------------------------------------------------------------------
+                                                                        
+                      
+                                                                        
 
     def build_tree(self, files: List[Dict[str, Any]], repo_name: str,
                    readme_content: str = "") -> dict:
-        """
-        Build the complete visual tree JSON from fetched repository files.
-
-        Args:
-            files: list of dicts from github_fetcher (path, content, language)
-            repo_name: repository display name
-            readme_content: optional README text
-
-        Returns:
-            tree dict ready for JSON serialization
-        """
+        
         print(f"[TreeBuilder] Building tree for '{repo_name}' ({len(files)} files)")
 
         code_root, file_sources, file_info = self._build_code_tree(files, repo_name)

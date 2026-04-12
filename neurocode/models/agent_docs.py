@@ -1,25 +1,15 @@
-"""
-Pydantic models and validation for AI-Agent .md output (guide + rules bundle).
-
-Schema is defined in:
-- neurocode/services/config/agent_guide_schema.json
-- neurocode/services/config/agent_rule_schema.json
-- neurocode/services/config/agent_docs_bundle_schema.json
-
-These models mirror that schema so we can validate LLM output before rendering to .md.
-"""
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
 
 class AgentGuideHowToUseItem(BaseModel):
-    """Single entry in the guide's 'How to use' list (path + description)."""
+    
     path: str = Field(..., description="Path to rule .md, e.g. 'rules/timing.md'")
     description: str = Field(..., description="One-line description of what the rule covers")
 
 
 class AgentGuideTopicPointer(BaseModel):
-    """Optional section in the guide that points to a specific rule file."""
+    
     title: str = Field(..., description="Section heading, e.g. 'Captions'")
     body: str = Field(..., description="One sentence + instruction to load the rule file")
     rule_path: str = Field(..., description="Path to the rule .md, e.g. 'rules/subtitles.md'")
@@ -30,7 +20,7 @@ class AgentGuideMetadata(BaseModel):
 
 
 class AgentGuide(BaseModel):
-    """Main guide .md (e.g. GUIDE.md): explains what the folder is for and how to use each rule .md."""
+    
     name: str = Field(..., description="Slug for the filename, e.g. 'guide' (without .md)")
     description: str = Field(..., description="Short description for frontmatter")
     metadata: Optional[AgentGuideMetadata] = None
@@ -48,7 +38,7 @@ class AgentRuleMetadata(BaseModel):
 
 
 class AgentRule(BaseModel):
-    """Single rule/playbook .md: role, description, prerequisites, body, optional input/output."""
+    
     name: str = Field(..., description="Slug for the filename, e.g. 'timing' (without .md)")
     description: str = Field(..., description="Short description for frontmatter")
     metadata: Optional[AgentRuleMetadata] = None
@@ -60,6 +50,6 @@ class AgentRule(BaseModel):
 
 
 class AgentDocsBundle(BaseModel):
-    """Bundle of AI-Agent .md files: one main guide + N rule/playbook .mds."""
+    
     guide: AgentGuide
     rules: List[AgentRule] = Field(..., min_length=1)

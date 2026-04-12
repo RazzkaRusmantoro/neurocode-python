@@ -1,6 +1,3 @@
-"""
-Pull Request analysis endpoints
-"""
 from fastapi import APIRouter, HTTPException
 from typing import Optional, List, Dict, Any
 import re
@@ -20,29 +17,7 @@ router = APIRouter()
 
 @router.post("/api/analyze-pull-request")
 async def analyze_pull_request(request: AnalyzePullRequestRequest):
-    """
-    Analyze a pull request and generate AI-powered insights
     
-    Pipeline:
-    1. Fetch PR diff from GitHub
-    2. Parse changed files with Tree-sitter
-    3. Query dependency graph for affected files
-    4. Search vector DB for related code
-    5. Generate analysis with Claude
-    
-    Args:
-        request: AnalyzePullRequestRequest with:
-            - github_token: GitHub access token
-            - repo_full_name: Repository full name (e.g., "owner/repo")
-            - pr_number: PR number
-            - organization_id: MongoDB ObjectId
-            - repository_id: MongoDB ObjectId
-            - organization_short_id: Organization short ID
-            - repository_name: Repository name
-    
-    Returns:
-        Analysis results with summary, risk assessment, dependencies, etc.
-    """
     try:
         if not llm_service:
             raise HTTPException(
@@ -57,7 +32,7 @@ async def analyze_pull_request(request: AnalyzePullRequestRequest):
         print(f"PR Number: {request.pr_number}")
         print("="*60)
         
-        # Step 1: Fetch PR data from GitHub
+                                           
         print("\n[Step 1/6] Fetching PR data from GitHub...")
         pr_data = await fetch_pr_data(
             repo_full_name=request.repo_full_name,
@@ -66,7 +41,7 @@ async def analyze_pull_request(request: AnalyzePullRequestRequest):
         )
         print(f"✓ Fetched PR: {pr_data['title']}")
         
-        # Step 2: Fetch PR diff/files
+                                     
         print("\n[Step 2/6] Fetching PR diff...")
         pr_files = await fetch_pr_files(
             repo_full_name=request.repo_full_name,
@@ -75,12 +50,12 @@ async def analyze_pull_request(request: AnalyzePullRequestRequest):
         )
         print(f"✓ Found {len(pr_files)} changed files")
         
-        # Step 3: Parse changed files
+                                     
         print("\n[Step 3/6] Parsing changed files...")
         changed_files_analysis = []
         for file in pr_files:
             if file.get('patch'):
-                # Parse the file to extract functions/classes
+                                                             
                 file_analysis = {
                     'filePath': file['filename'],
                     'status': file['status'],
@@ -92,12 +67,12 @@ async def analyze_pull_request(request: AnalyzePullRequestRequest):
         
         print(f"✓ Parsed {len(changed_files_analysis)} files with changes")
         
-        # Step 4: Search vector DB for related code (if collection exists)
+                                                                          
         print("\n[Step 4/6] Searching for related code...")
         related_code = []
         collection_name = None
         
-        # Build collection name (same as documentation pipeline)
+                                                                
         def sanitize_name(name: str) -> str:
             if not name:
                 return ""
@@ -113,9 +88,9 @@ async def analyze_pull_request(request: AnalyzePullRequestRequest):
             branch = pr_data.get('baseBranch', 'main')
             collection_name = f"{org_name_safe}_{org_slug_safe}_{repo_name_safe}_{branch}"
             
-            # Try to search vector DB for related code
+                                                      
             try:
-                # Use PR title + description as query
+                                                     
                 query_text = f"{pr_data.get('title', '')} {pr_data.get('description', '')}"
                 if query_text.strip():
                     search_results = vectorizer.search(
@@ -128,7 +103,7 @@ async def analyze_pull_request(request: AnalyzePullRequestRequest):
             except Exception as e:
                 print(f"⚠ Vector search failed (collection may not exist): {e}")
         
-        # Step 5: Generate analysis with Claude
+                                               
         print("\n[Step 5/6] Generating AI analysis...")
         analysis = await generate_pr_analysis(
             pr_data=pr_data,
@@ -139,16 +114,16 @@ async def analyze_pull_request(request: AnalyzePullRequestRequest):
         if analysis.get("issues"):
             print(f"✓ Found {len(analysis.get('issues', []))} issue(s)")
         
-        # Step 6: Calculate risk assessment (after analysis to factor in issues)
+                                                                                
         print("\n[Step 6/6] Calculating risk assessment...")
         risk_assessment = calculate_risk_assessment(
             changed_files=changed_files_analysis,
             pr_data=pr_data,
-            issues=analysis.get("issues", [])  # Pass issues to risk calculation
+            issues=analysis.get("issues", [])                                   
         )
         print(f"✓ Risk level: {risk_assessment['level']}")
         
-        # Step 7: Generate review comments
+                                          
         print("\n[Step 7/7] Generating review comments...")
         review_comments = await generate_review_comments(
             pr_data=pr_data,
@@ -160,7 +135,7 @@ async def analyze_pull_request(request: AnalyzePullRequestRequest):
         
         print("="*60 + "\n")
         
-        # Combine all analysis
+                              
         result = {
             "success": True,
             "prNumber": request.pr_number,
@@ -169,7 +144,7 @@ async def analyze_pull_request(request: AnalyzePullRequestRequest):
             "riskAssessment": risk_assessment,
             "dependencies": {
                 "direct": [f['filePath'] for f in changed_files_analysis],
-                "indirect": [],  # TODO: Query dependency graph
+                "indirect": [],                                
                 "affectedFiles": len(changed_files_analysis)
             },
             "fileAnalysis": analysis.get("fileAnalysis", []),
@@ -192,7 +167,7 @@ async def analyze_pull_request(request: AnalyzePullRequestRequest):
 
 
 async def fetch_pr_data(repo_full_name: str, pr_number: int, access_token: str) -> Dict:
-    """Fetch PR metadata from GitHub API"""
+    
     import httpx
     
     url = f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}"
@@ -225,7 +200,7 @@ async def fetch_pr_data(repo_full_name: str, pr_number: int, access_token: str) 
 
 
 async def fetch_pr_files(repo_full_name: str, pr_number: int, access_token: str) -> List[Dict]:
-    """Fetch PR files/diff from GitHub API"""
+    
     import httpx
     
     url = f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}/files"
@@ -261,13 +236,13 @@ async def generate_pr_analysis(
     changed_files: List[Dict],
     related_code: List[Dict]
 ) -> Dict:
-    """Generate PR analysis using Claude"""
     
-    # Build context for Claude with file patches
+    
+                                                
     changed_files_summary = ""
     file_patches = {}
     
-    for f in changed_files[:15]:  # Limit to first 15 files
+    for f in changed_files[:15]:                           
         file_path = f.get('filePath', '')
         status = f.get('status', '')
         additions = f.get('additions', 0)
@@ -276,25 +251,25 @@ async def generate_pr_analysis(
         
         changed_files_summary += f"\n## {file_path} ({status}): +{additions}/-{deletions} lines\n"
         
-        # Store patch for code snippets (limit size)
+                                                    
         if patch:
-            # Limit patch to first 500 lines to avoid token limits
+                                                                  
             patch_lines = patch.split('\n')
             if len(patch_lines) > 500:
                 patch = '\n'.join(patch_lines[:500]) + "\n... (truncated)"
             file_patches[file_path] = patch
-            changed_files_summary += f"```diff\n{patch[:2000]}\n```\n"  # Show first 2000 chars
+            changed_files_summary += f"```diff\n{patch[:2000]}\n```\n"                         
     
     related_code_summary = ""
     if related_code:
         related_code_summary = "\n\nRelated code patterns found:\n"
-        for chunk in related_code[:3]:  # Top 3 related chunks
+        for chunk in related_code[:3]:                        
             metadata = chunk.get("metadata", {})
             file_path = metadata.get("file_path", "")
             if file_path:
                 related_code_summary += f"- {file_path}\n"
     
-    # Safely get description, handling None values
+                                                  
     description = pr_data.get('description') or 'N/A'
     if description != 'N/A':
         description = description[:500]
@@ -487,7 +462,7 @@ Format your response as JSON with this structure:
     try:
         response = llm_service.client.messages.create(
             model=llm_service.model,
-            max_tokens=6000,  # Increased for detailed formal description with code snippets
+            max_tokens=6000,                                                                
             system="You are a senior code reviewer and technical writer. You analyze pull requests thoroughly and create formal, comprehensive descriptions. You write in a professional, structured format that includes: (1) A clear summary with title and overview, (2) Detailed changes organized by file with sub-sections, key changes, impact explanations, and relevant code snippets, (3) Architectural implications discussing the overall approach, and (4) An overall assessment. You only flag issues as CRITICAL if you're CERTAIN they will break the codebase. Schema changes, config changes, and prompt changes are usually NOT critical unless they will definitely break existing functionality. You are balanced - don't over-flag issues. You identify real problems (code-breaking errors, security vulnerabilities, actual breaking changes, very large PRs), high-severity issues (performance problems, logic errors, missing error handling), and medium-severity issues (code smells, testing, documentation). You IGNORE PR description quality issues, minor style issues, and non-breaking schema/config changes. You are thorough, specific, balanced, and write in a formal, professional style.",
             messages=[{
                 "role": "user",
@@ -498,9 +473,9 @@ Format your response as JSON with this structure:
         if response.content and len(response.content) > 0:
             content = response.content[0].text.strip()
             
-            # Try to parse JSON from response
+                                             
             try:
-                # Extract JSON from markdown code blocks if present
+                                                                   
                 json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
                 if json_match:
                     content = json_match.group(1)
@@ -508,21 +483,21 @@ Format your response as JSON with this structure:
                 import json
                 analysis = json.loads(content)
                 
-                # Filter out low-severity PR description issues
+                                                               
                 if analysis.get("issues"):
                     filtered_issues = []
                     for issue in analysis.get("issues", []):
-                        # Ignore issues related to PR description
+                                                                 
                         issue_desc_lower = issue.get("description", "").lower()
                         issue_type_lower = issue.get("type", "").lower()
                         
-                        # Skip PR description related issues
+                                                            
                         if any(keyword in issue_desc_lower for keyword in ["pr description", "pull request description", "description missing", "description is", "description could", "description should"]):
                             continue
                         
-                        # Skip low-severity style-only issues unless they're significant
+                                                                                        
                         if issue.get("severity") == "low" and issue_type_lower in ["style", "formatting", "naming"]:
-                            # Only keep if it's a significant issue
+                                                                   
                             if not any(keyword in issue_desc_lower for keyword in ["security", "performance", "bug", "error", "crash", "breaking"]):
                                 continue
                         
@@ -530,9 +505,9 @@ Format your response as JSON with this structure:
                     
                     analysis["issues"] = filtered_issues
                 
-                # Ensure description structure exists
+                                                     
                 if not analysis.get("description"):
-                    # Fallback: create basic structure
+                                                      
                     analysis["description"] = {
                         "title": pr_data.get('title', 'N/A'),
                         "overview": "Analysis generated successfully. Review the changes carefully.",
@@ -541,10 +516,10 @@ Format your response as JSON with this structure:
                         "overallAssessment": {}
                     }
                 
-                # Ensure architecturalImplications is an object
+                                                               
                 if analysis.get("description", {}).get("architecturalImplications"):
                     if isinstance(analysis["description"]["architecturalImplications"], str):
-                        # Convert old string format to new object format
+                                                                        
                         analysis["description"]["architecturalImplications"] = {
                             "approach": analysis["description"]["architecturalImplications"],
                             "benefits": [],
@@ -554,10 +529,10 @@ Format your response as JSON with this structure:
                 elif not analysis.get("description", {}).get("architecturalImplications"):
                     analysis["description"]["architecturalImplications"] = {}
                 
-                # Ensure overallAssessment is an object
+                                                       
                 if analysis.get("description", {}).get("overallAssessment"):
                     if isinstance(analysis["description"]["overallAssessment"], str):
-                        # Convert old string format to new object format
+                                                                        
                         analysis["description"]["overallAssessment"] = {
                             "prType": "Analysis generated",
                             "keyBenefits": [],
@@ -568,7 +543,7 @@ Format your response as JSON with this structure:
                 elif not analysis.get("description", {}).get("overallAssessment"):
                     analysis["description"]["overallAssessment"] = {}
                 
-                # Add issues mention to overallAssessment if there are issues
+                                                                             
                 if analysis.get("issues") and len(analysis.get("issues", [])) > 0:
                     issues_count = len(analysis.get("issues", []))
                     critical_count = len([i for i in analysis.get("issues", []) if i.get("severity") == "critical"])
@@ -581,7 +556,7 @@ Format your response as JSON with this structure:
                         issues_note += f"{high_count} high-severity, "
                     issues_note += f"{issues_count} total issue(s) detected. Please review the issues section below."
                     
-                    # Append to overallAssessment issuesSummary
+                                                               
                     if analysis.get("description", {}).get("overallAssessment"):
                         if isinstance(analysis["description"]["overallAssessment"], dict):
                             if analysis["description"]["overallAssessment"].get("issuesSummary"):
@@ -595,8 +570,8 @@ Format your response as JSON with this structure:
                 
                 return analysis
             except json.JSONDecodeError:
-                # If JSON parsing fails, try to extract summary from text
-                # Look for summary-like content
+                                                                         
+                                               
                 summary_match = re.search(r'(?:summary|overview|description)[:\s]+(.+?)(?:\n\n|\n[A-Z]|$)', content, re.IGNORECASE | re.DOTALL)
                 if summary_match:
                     summary_text = summary_match.group(1).strip()[:1000]
@@ -649,71 +624,71 @@ Format your response as JSON with this structure:
 
 
 def extract_code_snippet(file_path: str, line_number: int, changed_files: List[Dict], context_lines: int = 5) -> str:
-    """Extract code snippet around a specific line from the diff"""
+    
     for file_info in changed_files:
         if file_info.get('filePath') == file_path:
             patch = file_info.get('patch', '')
             if not patch:
                 return ''
             
-            # Parse diff to find the line
+                                         
             lines = patch.split('\n')
-            new_line_counter = 0  # Track line numbers in the new file
+            new_line_counter = 0                                      
             target_line = line_number
             target_index = -1
             in_relevant_hunk = False
             
-            # Parse through the diff
+                                    
             for i, line in enumerate(lines):
-                # Skip diff file headers
+                                        
                 if line.startswith(('diff --git', 'index ', '--- a/', '+++ b/')):
                     continue
                 
-                # Handle hunk headers: @@ -old_start,old_count +new_start,new_count @@
+                                                                                      
                 if line.startswith('@@'):
-                    # Extract new file start line and count
+                                                           
                     match = re.search(r'\+(\d+)(?:,(\d+))?', line)
                     if match:
                         hunk_start = int(match.group(1))
                         hunk_count = int(match.group(2)) if match.group(2) else 1
-                        # Check if target line is in this hunk (with buffer for context)
+                                                                                        
                         in_relevant_hunk = hunk_start <= target_line <= (hunk_start + hunk_count + 20)
                         if in_relevant_hunk:
-                            new_line_counter = hunk_start - 1  # -1 because we'll increment on first line
+                            new_line_counter = hunk_start - 1                                            
                         else:
-                            # Reset if we're past the relevant hunk
+                                                                   
                             if new_line_counter > 0 and new_line_counter > target_line:
                                 break
                     continue
                 
-                # Only track lines if we're in a relevant hunk
+                                                              
                 if not in_relevant_hunk:
                     continue
                 
-                # Track line numbers
+                                    
                 if line.startswith('+') and not line.startswith('+++'):
-                    # Added line - increment new file counter
+                                                             
                     new_line_counter += 1
                     if new_line_counter == target_line:
                         target_index = i
                         break
                 elif line.startswith('-') and not line.startswith('---'):
-                    # Deleted line - don't increment new file counter, but keep for context
+                                                                                           
                     pass
                 elif line and not line.startswith('\\'):
-                    # Context line (starts with space) - exists in both files, increment new counter
+                                                                                                    
                     new_line_counter += 1
                     if new_line_counter == target_line:
                         target_index = i
                         break
             
-            # If we found the target line, extract context around it
+                                                                    
             if target_index >= 0:
                 start_idx = max(0, target_index - context_lines)
                 end_idx = min(len(lines), target_index + context_lines + 1)
                 snippet_lines = lines[start_idx:end_idx]
                 
-                # Filter out diff headers and hunk markers, but keep the diff indicators
+                                                                                        
                 filtered_snippet = []
                 for line in snippet_lines:
                     stripped = line.strip()
@@ -722,19 +697,19 @@ def extract_code_snippet(file_path: str, line_number: int, changed_files: List[D
                     filtered_snippet.append(line)
                 
                 if filtered_snippet:
-                    return '\n'.join(filtered_snippet[:25])  # Limit to 25 lines
+                    return '\n'.join(filtered_snippet[:25])                     
             
-            # Fallback: return a representative portion of the diff for this file
+                                                                                 
             if patch:
                 patch_lines = patch.split('\n')
-                # Find first hunk and return it with context
+                                                            
                 for i, line in enumerate(patch_lines):
                     if line.startswith('@@'):
-                        # Found a hunk, return lines around it
+                                                              
                         start = max(0, i - 2)
                         end = min(len(patch_lines), i + 15)
                         fallback_snippet = patch_lines[start:end]
-                        # Filter headers but keep diff indicators
+                                                                 
                         filtered = []
                         for ln in fallback_snippet:
                             stripped = ln.strip()
@@ -756,16 +731,16 @@ async def generate_review_comments(
     issues: List[Dict],
     file_analysis: List[Dict]
 ) -> List[Dict]:
-    """Generate review comments for GitHub PR based on analysis"""
+    
     
     if not llm_service:
         return []
     
-    # Build context from issues and file analysis
+                                                 
     issues_summary = ""
     if issues:
         issues_summary = "\n\nIssues Detected:\n"
-        for issue in issues[:10]:  # Limit to top 10 issues
+        for issue in issues[:10]:                          
             severity = issue.get("severity", "medium")
             issue_type = issue.get("type", "other")
             file_path = issue.get("file", "unknown")
@@ -782,7 +757,7 @@ async def generate_review_comments(
     file_analysis_summary = ""
     if file_analysis:
         file_analysis_summary = "\n\nFile Analysis:\n"
-        for file_info in file_analysis[:10]:  # Limit to top 10 files
+        for file_info in file_analysis[:10]:                         
             file_path = file_info.get("filePath", "")
             risk_level = file_info.get("riskLevel", "medium")
             explanation = file_info.get("explanation", "")
@@ -790,19 +765,19 @@ async def generate_review_comments(
             file_analysis_summary += f"- {file_path} (Risk: {risk_level})\n"
             file_analysis_summary += f"  {explanation}\n\n"
     
-    # Get file patches for context
+                                  
     file_patches_summary = ""
-    for f in changed_files[:5]:  # Limit to first 5 files for context
+    for f in changed_files[:5]:                                      
         file_path = f.get('filePath', '')
         patch = f.get('patch', '')
         if patch:
-            # Limit patch size
+                              
             patch_lines = patch.split('\n')
             if len(patch_lines) > 100:
                 patch = '\n'.join(patch_lines[:100]) + "\n... (truncated)"
             file_patches_summary += f"\n### {file_path}\n```diff\n{patch[:1500]}\n```\n"
     
-    # Safely get description, handling None values
+                                                  
     description = pr_data.get('description') or ''
     if description:
         description = description[:500]
@@ -872,9 +847,9 @@ Changed Files (sample):
         if response.content and len(response.content) > 0:
             content = response.content[0].text.strip()
             
-            # Try to parse JSON from response
+                                             
             try:
-                # Extract JSON from markdown code blocks if present
+                                                                   
                 json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
                 if json_match:
                     content = json_match.group(1)
@@ -884,25 +859,25 @@ Changed Files (sample):
                 
                 review_comments = result.get("reviewComments", [])
                 
-                # Validate and clean comments
+                                             
                 validated_comments = []
                 for comment in review_comments:
                     if comment.get("body") and comment.get("path"):
-                        # Strip markdown formatting and emojis from comment body
+                                                                                
                         body = comment.get("body", "")
-                        # Remove emojis (common emoji patterns)
+                                                               
                         body = re.sub(r'[⚠️✅❌🔍💡🚨📝⚡️🔥💯⭐️🎯]', '', body)
-                        body = re.sub(r'[\U0001F300-\U0001F9FF]', '', body)  # Remove emoji unicode ranges
-                        # Remove markdown bold/italic
-                        body = re.sub(r'\*\*([^*]+)\*\*', r'\1', body)  # Remove **bold**
-                        body = re.sub(r'\*([^*]+)\*', r'\1', body)  # Remove *italic*
-                        # Replace backticks with double quotes for code highlighting
-                        body = re.sub(r'`([^`]+)`', r'"\1"', body)  # Replace `code` with "code"
-                        body = re.sub(r'```[\s\S]*?```', '', body)  # Remove code blocks
-                        body = re.sub(r'#+\s*', '', body)  # Remove markdown headers
+                        body = re.sub(r'[\U0001F300-\U0001F9FF]', '', body)                               
+                                                     
+                        body = re.sub(r'\*\*([^*]+)\*\*', r'\1', body)                   
+                        body = re.sub(r'\*([^*]+)\*', r'\1', body)                   
+                                                                                    
+                        body = re.sub(r'`([^`]+)`', r'"\1"', body)                              
+                        body = re.sub(r'```[\s\S]*?```', '', body)                      
+                        body = re.sub(r'#+\s*', '', body)                           
                         body = body.strip()
                         
-                        # Extract code snippet for this comment
+                                                               
                         code_snippet = ""
                         comment_path = comment.get("path")
                         comment_line = comment.get("line")
@@ -911,12 +886,12 @@ Changed Files (sample):
                         
                         validated_comments.append({
                             "path": comment_path,
-                            "line": comment_line,  # Can be null
-                            "side": comment.get("side", "RIGHT"),  # LEFT, RIGHT, or null
+                            "line": comment_line,               
+                            "side": comment.get("side", "RIGHT"),                        
                             "body": body,
                             "severity": comment.get("severity", "medium"),
                             "issueType": comment.get("issueType", "other"),
-                            "codeSnippet": code_snippet  # Code snippet from diff
+                            "codeSnippet": code_snippet                          
                         })
                 
                 return validated_comments
@@ -931,7 +906,7 @@ Changed Files (sample):
 
 
 def calculate_risk_assessment(changed_files: List[Dict], pr_data: Dict, issues: List[Dict] = None) -> Dict:
-    """Calculate risk level based on PR changes and detected issues - Balanced approach"""
+    
     if issues is None:
         issues = []
     
@@ -943,7 +918,7 @@ def calculate_risk_assessment(changed_files: List[Dict], pr_data: Dict, issues: 
     factors = []
     risk_score = 0
     
-    # Factor 1: Number of files changed (less strict)
+                                                     
     if total_files > 20:
         factors.append(f"Very large number of files changed ({total_files})")
         risk_score += 25
@@ -954,7 +929,7 @@ def calculate_risk_assessment(changed_files: List[Dict], pr_data: Dict, issues: 
         factors.append(f"Multiple files changed ({total_files})")
         risk_score += 8
     
-    # Factor 2: Total changes (less strict)
+                                           
     if total_changes > 2000:
         factors.append(f"Very large changes ({total_changes} lines)")
         risk_score += 25
@@ -965,20 +940,20 @@ def calculate_risk_assessment(changed_files: List[Dict], pr_data: Dict, issues: 
         factors.append(f"Moderate changes ({total_changes} lines)")
         risk_score += 8
     
-    # Factor 3: Check for truly critical files (more specific)
-    # Only flag if it's core infrastructure, not just config/schema files
+                                                              
+                                                                         
     truly_critical_patterns = ['auth', 'security', 'database', 'core', 'main']
     critical_files = [
         f for f in changed_files
         if any(pattern in f['filePath'].lower() for pattern in truly_critical_patterns)
-        and 'schema' not in f['filePath'].lower()  # Exclude schema files
-        and 'config' not in f['filePath'].lower()  # Exclude config files unless truly critical
+        and 'schema' not in f['filePath'].lower()                        
+        and 'config' not in f['filePath'].lower()                                              
     ]
     if critical_files:
         factors.append(f"Critical infrastructure files modified ({len(critical_files)})")
         risk_score += 20
     
-    # Factor 4: Significant deletions (potential breaking changes) - less strict
+                                                                                
     if total_deletions > 500:
         factors.append(f"Very significant deletions ({total_deletions} lines)")
         risk_score += 20
@@ -986,10 +961,10 @@ def calculate_risk_assessment(changed_files: List[Dict], pr_data: Dict, issues: 
         factors.append(f"Significant deletions ({total_deletions} lines)")
         risk_score += 10
     
-    # Factor 5: Issues detected by AI analysis (balanced - only count actual breaking issues)
+                                                                                             
     if issues:
-        # Filter out schema/config/prompt change issues from critical/high severity
-        # These are usually not actually breaking unless they explicitly break functionality
+                                                                                   
+                                                                                            
         filtered_issues = []
         for i in issues:
             issue_file = i.get("file", "").lower()
@@ -997,23 +972,23 @@ def calculate_risk_assessment(changed_files: List[Dict], pr_data: Dict, issues: 
             issue_desc = i.get("description", "").lower()
             issue_expl = i.get("explanation", "").lower()
             
-            # Skip schema/config/prompt changes unless they explicitly break things
+                                                                                   
             if any(keyword in issue_file for keyword in ["schema", "config", "prompt", "template"]):
-                # Only keep if it explicitly says it will break
+                                                               
                 if "will break" in issue_expl or "break" in issue_desc or "crash" in issue_expl or "fail" in issue_expl:
                     filtered_issues.append(i)
-                # Otherwise downgrade severity or skip
+                                                      
                 elif i.get("severity") in ["critical", "high"]:
-                    # Downgrade to medium if it's about schema/config but not breaking
+                                                                                      
                     if "migration" in issue_expl or "backwards compatibility" in issue_expl or "validation" in issue_expl:
-                        # These are concerns but not breaking - downgrade
-                        continue  # Skip these as they're not actually breaking
+                                                                         
+                        continue                                               
                 else:
                     filtered_issues.append(i)
             else:
                 filtered_issues.append(i)
         
-        # Only count issues that are ACTUALLY breaking or security-related
+                                                                          
         actual_critical_issues = [
             i for i in filtered_issues 
             if i.get("severity") == "critical" 
@@ -1031,25 +1006,25 @@ def calculate_risk_assessment(changed_files: List[Dict], pr_data: Dict, issues: 
         ]
         medium_issues = [i for i in filtered_issues if i.get("severity") == "medium"]
         
-        # Only count actual breaking issues for critical risk (much more conservative)
+                                                                                      
         if actual_critical_issues:
             factors.append(f"{len(actual_critical_issues)} critical breaking issue(s) detected")
-            risk_score += 30  # Reduced from 40
+            risk_score += 30                   
         if high_breaking_issues:
             factors.append(f"{len(high_breaking_issues)} high-severity breaking issue(s) detected")
-            risk_score += 15  # Reduced from 20
+            risk_score += 15                   
         if other_high_issues:
             factors.append(f"{len(other_high_issues)} high-severity issue(s) detected")
-            risk_score += 8  # Reduced from 10
+            risk_score += 8                   
         if medium_issues:
             factors.append(f"{len(medium_issues)} medium-severity issue(s) detected")
-            risk_score += 3  # Reduced from 5
-        if len(filtered_issues) > 15:  # Increased threshold
+            risk_score += 3                  
+        if len(filtered_issues) > 15:                       
             factors.append(f"Many issues detected ({len(filtered_issues)} total)")
-            risk_score += 3  # Reduced from 5
+            risk_score += 3                  
     
-    # Determine risk level (5 levels) - More balanced thresholds
-    # Critical only for things that WILL break the codebase
+                                                                
+                                                           
     if risk_score >= 70:
         level = "critical"
     elif risk_score >= 50:
@@ -1061,7 +1036,7 @@ def calculate_risk_assessment(changed_files: List[Dict], pr_data: Dict, issues: 
     else:
         level = "low"
     
-    # Generate explanation based on risk level (balanced messaging)
+                                                                   
     if level == "critical":
         explanation = "This PR contains changes that may break the codebase. "
     elif level == "very high":
@@ -1074,7 +1049,7 @@ def calculate_risk_assessment(changed_files: List[Dict], pr_data: Dict, issues: 
         explanation = "This PR appears to be low risk. "
     
     if factors:
-        explanation += "Consider: " + "; ".join(factors[:2])  # Only show top 2 factors
+        explanation += "Consider: " + "; ".join(factors[:2])                           
     else:
         if level in ["low", "medium"]:
             explanation += "Changes appear safe to merge."
@@ -1085,7 +1060,7 @@ def calculate_risk_assessment(changed_files: List[Dict], pr_data: Dict, issues: 
         "level": level,
         "score": min(risk_score, 100),
         "factors": factors,
-        "breakingChanges": [],  # TODO: Detect breaking changes
+        "breakingChanges": [],                                 
         "explanation": explanation
     }
 

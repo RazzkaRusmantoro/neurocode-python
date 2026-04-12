@@ -1,8 +1,3 @@
-"""
-Regenerate a single documentation or UML diagram (sync flow).
-Used by the sync job after re-vectorizing: load doc, vector search with stored prompt,
-same LLM as create, write to S3 and MongoDB, clear flags.
-"""
 from typing import Dict, Any, List, Optional
 import json
 from datetime import datetime
@@ -19,7 +14,7 @@ from neurocode.routes.documentation import _agent_bundle_to_documentation, _get_
 
 
 def _file_paths_from_search_results(search_results: List[Dict[str, Any]]) -> List[str]:
-    """Extract unique sorted file paths from search result chunks."""
+    
     paths = sorted(
         set(
             (c.get("metadata") or {}).get("file_path", "").strip()
@@ -30,11 +25,7 @@ def _file_paths_from_search_results(search_results: List[Dict[str, Any]]) -> Lis
 
 
 async def regenerate_documentation(documentation_id: str) -> Dict[str, Any]:
-    """
-    Regenerate one textual documentation: load doc, vector search with stored prompt,
-    same LLM as create, overwrite S3, update MongoDB (filePaths, clear flags).
-    Returns { "success": True } or { "success": False, "error": "..." }.
-    """
+    
     if not mongodb_service:
         return {"success": False, "error": "MongoDB not available"}
     if not llm_service:
@@ -82,7 +73,7 @@ async def regenerate_documentation(documentation_id: str) -> Dict[str, Any]:
         if not search_results:
             return {"success": False, "error": f"No chunks in collection '{collection_name}'"}
 
-        # Multi-repo: add up to 5 chunks per other org repo (if they exist and have collections)
+                                                                                                
         org_short_id = names_result.get("organization_short_id") or ""
         other_chunks = _get_other_repo_chunks(
             target_collection_name=collection_name,
@@ -171,11 +162,7 @@ async def regenerate_documentation(documentation_id: str) -> Dict[str, Any]:
 
 
 async def regenerate_uml_diagram(diagram_id: str) -> Dict[str, Any]:
-    """
-    Regenerate one UML diagram: load diagram, vector search with stored prompt,
-    same UML LLM as create, update MongoDB (diagramData, filePaths, clear flags), overwrite S3.
-    Returns { "success": True } or { "success": False, "error": "..." }.
-    """
+    
     if not mongodb_service:
         return {"success": False, "error": "MongoDB not available"}
     if not llm_service:
@@ -224,7 +211,7 @@ async def regenerate_uml_diagram(diagram_id: str) -> Dict[str, Any]:
         if not search_results:
             return {"success": False, "error": f"No chunks in collection '{collection_name}'"}
 
-        # Multi-repo: add up to 5 chunks per other org repo (if they exist and have collections)
+                                                                                                
         org_short_id = names_result.get("organization_short_id") or ""
         other_chunks = _get_other_repo_chunks(
             target_collection_name=collection_name,

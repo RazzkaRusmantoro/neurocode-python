@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Simple script to run the NeuroCode Python service
-"""
+
 import uvicorn
 import os
 

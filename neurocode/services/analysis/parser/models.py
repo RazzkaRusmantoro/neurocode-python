@@ -1,12 +1,9 @@
-"""
-Data models for parsed code structure
-"""
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
 
 class Parameter(BaseModel):
-    """Function parameter"""
+    
     name: str
     type: Optional[str] = None
     optional: bool = False
@@ -14,7 +11,7 @@ class Parameter(BaseModel):
 
 
 class MethodDefinition(BaseModel):
-    """Class method definition"""
+    
     name: str
     parameters: List[Parameter] = []
     returnType: Optional[str] = None
@@ -26,7 +23,7 @@ class MethodDefinition(BaseModel):
 
 
 class PropertyDefinition(BaseModel):
-    """Class property definition"""
+    
     name: str
     type: Optional[str] = None
     isPublic: bool = True
@@ -34,7 +31,7 @@ class PropertyDefinition(BaseModel):
 
 
 class FunctionDefinition(BaseModel):
-    """Function definition"""
+    
     name: str
     parameters: List[Parameter] = []
     returnType: Optional[str] = None
@@ -46,7 +43,7 @@ class FunctionDefinition(BaseModel):
 
 
 class ClassDefinition(BaseModel):
-    """Class definition"""
+    
     name: str
     methods: List[MethodDefinition] = []
     properties: List[PropertyDefinition] = []
@@ -58,64 +55,64 @@ class ClassDefinition(BaseModel):
 
 
 class ImportStatement(BaseModel):
-    """Import statement"""
+    
     source: str
     imports: List[str] = []
     isTypeOnly: bool = False
 
 
 class ExportStatement(BaseModel):
-    """Export statement"""
+    
     name: str
-    type: str  # 'function' | 'class' | 'variable' | 'default'
+    type: str                                                 
 
 
 class ConstantDefinition(BaseModel):
-    """Top-level constant (object/array literal or primitive)."""
+    
     name: str
     startLine: int
     endLine: int
-    valueType: str = "object"  # 'object' | 'array' | 'literal'
+    valueType: str = "object"                                  
     isExported: bool = False
 
 
 class RouteDefinition(BaseModel):
-    """Route definition (e.g. router.get('/path', handler), app.post(...))."""
+    
     path: str
-    method: str  # 'get' | 'post' | 'put' | 'delete' | 'patch' | 'use'
-    receiver: Optional[str] = None  # e.g. 'router', 'app'
+    method: str                                                       
+    receiver: Optional[str] = None                        
     startLine: int
     endLine: int
 
 
 class DefaultExportDefinition(BaseModel):
-    """Default export statement (export default ...)."""
+    
     startLine: int
     endLine: int
 
 
 class Dependency(BaseModel):
-    """Dependency between files"""
-    from_path: str  # file path
-    to_path: str  # file path or external package
-    type: str  # 'import' | 'call' | 'extends' | 'implements'
-    relationship: str = ""  # function name, class name, etc.
+    
+    from_path: str             
+    to_path: str                                 
+    type: str                                                
+    relationship: str = ""                                   
 
 
 class FunctionCall(BaseModel):
-    """Function call information"""
+    
     functionName: str
     filePath: str
     line: int
     column: int
-    context: Optional[str] = None  # Function/method where it's called
+    context: Optional[str] = None                                     
     isMethodCall: bool = False
     receiver: Optional[str] = None
-    callType: str = "function"  # 'function' | 'method' | 'constructor'
+    callType: str = "function"                                         
 
 
 class FunctionUsage(BaseModel):
-    """Function usage tracking"""
+    
     functionName: str
     definedIn: Optional[str] = None
     calledIn: List[FunctionCall] = []
@@ -123,7 +120,7 @@ class FunctionUsage(BaseModel):
 
 
 class ParsedFile(BaseModel):
-    """Parsed file structure"""
+    
     path: str
     language: str
     functions: List[FunctionDefinition] = []
@@ -136,7 +133,7 @@ class ParsedFile(BaseModel):
 
 
 class ParsedCodeStructure(BaseModel):
-    """Complete parsed code structure"""
+    
     files: List[ParsedFile] = []
     dependencies: List[Dependency] = []
     modules: List[Dict[str, Any]] = []

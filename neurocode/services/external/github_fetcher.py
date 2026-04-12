@@ -1,6 +1,3 @@
-"""
-GitHub repository file fetcher service
-"""
 import os
 import httpx
 import asyncio
@@ -9,7 +6,7 @@ from typing import List, Dict, Any, Optional
 
 
 def _source_priority(path: str) -> int:
-    """Lower = higher priority. Prefer src/app/lib/server over other paths."""
+    
     path_lower = path.lower()
     if path_lower.startswith("src/"):
         return 0
@@ -21,10 +18,10 @@ def _source_priority(path: str) -> int:
 
 
 class GitHubFetcher:
-    """Fetches files from GitHub repositories"""
+    
     
     def __init__(self):
-        self.max_files = int(os.getenv("INDEX_MAX_FILES", "500"))  # Max source files to fetch per repo
+        self.max_files = int(os.getenv("INDEX_MAX_FILES", "500"))                                      
         self.supported_languages = [
             'typescript', 'javascript', 'python', 'java', 'go',
             'rust', 'cpp', 'c', 'tsx', 'jsx'
@@ -37,24 +34,13 @@ class GitHubFetcher:
         branch: str = "main",
         path: str = ""
     ) -> List[Dict[str, Any]]:
-        """
-        Fetch all repository files using Git Trees API (more efficient)
         
-        Args:
-            repo_full_name: Repository full name (e.g., "owner/repo")
-            access_token: GitHub access token
-            branch: Branch name (default: "main")
-            path: Starting path (default: "" for root)
-            
-        Returns:
-            List of file dictionaries with path, content, and language
-        """
         files: List[Dict[str, Any]] = []
         token_preview = f"{access_token[:8]}..." if (access_token and len(access_token) > 8) else ("(empty)" if not access_token else "(present)")
         print(f"[GitHubFetcher] fetch_repository_files: repo={repo_full_name!r} branch={branch!r} token={token_preview}", flush=True)
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            # Step 1: Get the commit SHA for the branch (1 API call)
+                                                                    
             commit_sha = await self._get_branch_sha(
                 client, repo_full_name, access_token, branch
             )
@@ -71,12 +57,12 @@ class GitHubFetcher:
                 return files
             print(f"[GitHubFetcher] Branch SHA: {commit_sha[:12]}... (branch={branch!r})", flush=True)
 
-            # Step 2: Get the full tree recursively (1 API call)
+                                                                
             tree_items = await self._get_tree_recursive(
                 client, repo_full_name, access_token, commit_sha, path
             )
             
-            # Step 3: Filter and batch fetch file contents
+                                                          
             print(f"[GitHubFetcher] Tree items to fetch: {len(tree_items)}", flush=True)
             await self._batch_fetch_file_contents(
                 client, repo_full_name, access_token, tree_items, files
@@ -86,9 +72,7 @@ class GitHubFetcher:
         return files
 
     async def get_default_branch(self, repo_full_name: str, access_token: str) -> Optional[str]:
-        """
-        Get the repository's default branch (e.g. main, master, or whatever is set on GitHub).
-        """
+        
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(
@@ -114,10 +98,7 @@ class GitHubFetcher:
         *,
         max_branches: int = 500,
     ) -> Dict[str, str]:
-        """
-        List all branches and their latest commit SHA for a repository.
-        Returns a mapping branch_name -> commit_sha (e.g. {"main": "abc123", "develop": "def456"}).
-        """
+        
         out: Dict[str, str] = {}
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -156,16 +137,12 @@ class GitHubFetcher:
         base_sha: str,
         head_sha: str,
     ) -> List[str]:
-        """
-        Get all file paths that were changed, added, removed, or renamed between two commits.
-        Uses GitHub Compare API (base..head). Covers multiple commits in the range.
-        Returns a list of unique paths (includes both old and new path for renames).
-        """
+        
         out: List[str] = []
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                # Compare API: base...head (three dots = merge base; two dots = direct diff)
-                # We want all files in the range base..head
+                                                                                            
+                                                           
                 url = f"https://api.github.com/repos/{repo_full_name}/compare/{base_sha}...{head_sha}"
                 response = await client.get(
                     url,
@@ -184,7 +161,7 @@ class GitHubFetcher:
                     if filename and filename not in seen:
                         seen.add(filename)
                         out.append(filename)
-                    # For renames, include previous path so docs referencing old path get synced
+                                                                                                
                     prev = f.get("previous_filename")
                     if prev and prev not in seen:
                         seen.add(prev)
@@ -200,7 +177,7 @@ class GitHubFetcher:
         access_token: str,
         branch: str
     ) -> Optional[str]:
-        """Get the commit SHA for a branch (1 API call)"""
+        
         url = f"https://api.github.com/repos/{repo_full_name}/branches/{branch}"
         try:
             response = await client.get(
@@ -214,7 +191,7 @@ class GitHubFetcher:
                 data = response.json()
                 commit_sha = data.get("commit", {}).get("sha")
                 return commit_sha
-            # Log non-200 so we can see 401/403/404
+                                                   
             body = response.text[:500] if response.text else ""
             print(f"[GitHubFetcher] _get_branch_sha {response.status_code} {url!r}: {body}", flush=True)
         except Exception as e:
@@ -229,9 +206,9 @@ class GitHubFetcher:
         commit_sha: str,
         path: str = ""
     ) -> List[Dict[str, Any]]:
-        """Get the full repository tree recursively (1 API call)"""
+        
         try:
-            # Get the tree SHA from the commit first
+                                                    
             commit_url = f"https://api.github.com/repos/{repo_full_name}/git/commits/{commit_sha}"
             commit_response = await client.get(
                 commit_url,
@@ -249,7 +226,7 @@ class GitHubFetcher:
                 print(f"[GitHubFetcher] _get_tree_recursive: no tree.sha in commit response", flush=True)
                 return []
 
-            # Get the full tree recursively
+                                           
             tree_url = f"https://api.github.com/repos/{repo_full_name}/git/trees/{tree_sha}?recursive=1"
             tree_response = await client.get(
                 tree_url,
@@ -267,33 +244,33 @@ class GitHubFetcher:
                 tree_data = tree_response.json()
                 all_items = tree_data.get("tree", [])
                 
-                # Filter by path if specified
+                                             
                 if path:
                     all_items = [
                         item for item in all_items
                         if item.get("path", "").startswith(path)
                     ]
                 
-                # Filter out directories and unsupported files
+                                                              
                 filtered = []
                 for item in all_items:
-                    if item.get("type") != "blob":  # Skip directories
+                    if item.get("type") != "blob":                    
                         continue
                     
                     file_path = item.get("path", "")
                     file_name = file_path.split("/")[-1]
                     
-                    # Skip hidden files and build directories
+                                                             
                     if file_path.startswith(".") or any(
                         skip in file_path for skip in ["node_modules", "dist", "build", ".git"]
                     ):
                         continue
                     
-                    # Check if file is supported
+                                                
                     if file_name.endswith((".ts", ".tsx", ".js", ".jsx", ".py", ".java", ".go", ".rs", ".cpp", ".c")):
                         filtered.append(item)
                 
-                # Prefer source-like paths (src/, app/, lib/, server/) so we index important code first
+                                                                                                       
                 filtered.sort(key=lambda item: (_source_priority(item.get("path", "")), item.get("path", "")))
                 limited = filtered[:self.max_files]
                 print(f"[GitHubFetcher] Tree: {len(all_items)} items -> {len(filtered)} source files -> returning {len(limited)}", flush=True)
@@ -314,8 +291,8 @@ class GitHubFetcher:
         tree_items: List[Dict[str, Any]],
         files: List[Dict[str, Any]]
     ) -> None:
-        """Batch fetch file contents using Git Blobs API"""
-        # Fetch all blobs concurrently (much faster than sequential)
+        
+                                                                    
         tasks = []
         for item in tree_items[:self.max_files]:
             sha = item.get("sha")
@@ -325,7 +302,7 @@ class GitHubFetcher:
                     self._fetch_blob_content(client, repo_full_name, access_token, sha, path)
                 )
         
-        # Execute all requests concurrently
+                                           
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         for i, result in enumerate(results):
@@ -342,7 +319,7 @@ class GitHubFetcher:
         blob_sha: str,
         file_path: str
     ) -> Dict[str, Any]:
-        """Fetch a single blob content"""
+        
         try:
             response = await client.get(
                 f"https://api.github.com/repos/{repo_full_name}/git/blobs/{blob_sha}",
@@ -357,14 +334,14 @@ class GitHubFetcher:
                 content = blob_data.get("content", "")
                 encoding = blob_data.get("encoding", "")
                 
-                # Decode base64 content
+                                       
                 if encoding == "base64":
                     try:
                         content = base64.b64decode(content).decode("utf-8")
                     except:
                         content = ""
                 
-                # Determine language from file extension
+                                                        
                 language = "text"
                 if file_path.endswith((".ts", ".tsx")):
                     language = "TypeScript"

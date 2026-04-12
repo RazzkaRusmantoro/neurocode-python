@@ -1,6 +1,3 @@
-"""
-Visual tree generation endpoints
-"""
 import json
 import asyncio
 from datetime import datetime
@@ -18,19 +15,7 @@ router = APIRouter()
 
 @router.post("/api/generate-visual-tree")
 async def generate_visual_tree(request: GenerateVisualTreeRequest):
-    """
-    Generate a visual repository tree.
-
-    Pipeline:
-    1. Fetch files from GitHub
-    2. Parse code with tree-sitter (symbols, imports)
-    3. Generate AI feature tree (high-level → code-level)
-    4. Enrich files with AI descriptions
-    5. Merge trees and upload JSON to S3
-
-    Returns:
-        Tree metadata including S3 location
-    """
+    
     try:
         print("\n" + "=" * 60, flush=True)
         print("VISUAL TREE GENERATION PIPELINE", flush=True)
@@ -49,7 +34,7 @@ async def generate_visual_tree(request: GenerateVisualTreeRequest):
                 detail="organization_id and repository_id are required",
             )
 
-        # Step 1: Fetch repository files
+                                        
         print("\n[Step 1/4] Fetching files from GitHub...", flush=True)
         files = await github_fetcher.fetch_repository_files(
             repo_full_name=request.repo_full_name,
@@ -67,7 +52,7 @@ async def generate_visual_tree(request: GenerateVisualTreeRequest):
                 "repository": request.repo_full_name,
             }
 
-        # Try to find README for context
+                                        
         readme_content = ""
         for f in files:
             if f.get("path", "").lower() in ("readme.md", "readme.txt", "readme.rst"):
@@ -76,7 +61,7 @@ async def generate_visual_tree(request: GenerateVisualTreeRequest):
 
         repo_display_name = request.repository_name or request.repo_full_name.split("/")[-1]
 
-        # Step 2-3: Build tree (parsing + AI) — run in thread pool (synchronous LLM calls)
+                                                                                          
         if tree_builder is None:
             raise HTTPException(status_code=503, detail="Tree builder service not available")
 
@@ -89,7 +74,7 @@ async def generate_visual_tree(request: GenerateVisualTreeRequest):
         )
         print("✓ Visual tree built")
 
-        # Step 4: Upload to S3
+                              
         if s3_service is None:
             raise HTTPException(status_code=503, detail="S3 service not available")
 

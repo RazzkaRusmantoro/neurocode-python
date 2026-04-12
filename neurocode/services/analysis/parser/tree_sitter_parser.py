@@ -1,7 +1,3 @@
-"""
-Tree-sitter based code parser
-Parses code files and extracts AST, symbols, and dependencies
-"""
 from typing import List, Dict, Optional, Any
 from tree_sitter import Parser, Node
 from neurocode.services.analysis.parser.language_support import (
@@ -37,7 +33,7 @@ from neurocode.services.analysis.parser.models import (
 
 
 class ParseError:
-    """Parse error information"""
+    
     def __init__(self, file_path: str, error: str, language: Optional[str] = None):
         self.file_path = file_path
         self.error = error
@@ -45,7 +41,7 @@ class ParseError:
 
 
 class ParseResult:
-    """Result of parsing files"""
+    
     def __init__(
         self,
         structure: ParsedCodeStructure,
@@ -60,19 +56,19 @@ class ParseResult:
 
 
 class TreeSitterParser:
-    """Tree-sitter based code parser"""
+    
     
     def __init__(self):
-        self.parsers: Dict[str, Parser] = {}  # Cache parsers per language
+        self.parsers: Dict[str, Parser] = {}                              
         self.initialized = False
     
     async def initialize(self) -> None:
-        """Initialize the parser (must be called before parsing)"""
+        
         if self.initialized:
             return
         
         print('[TreeSitterParser] Initializing parser...')
-        # Parser will be created per language as needed
+                                                       
         self.initialized = True
         print('[TreeSitterParser] ✓ Parser initialized')
     
@@ -82,28 +78,18 @@ class TreeSitterParser:
         content: str,
         language: Optional[str] = None
     ) -> Optional[ParsedFile]:
-        """
-        Parse a single file
         
-        Args:
-            path: File path
-            content: File content
-            language: Optional language hint
-        
-        Returns:
-            ParsedFile or None if parsing failed
-        """
         if not self.initialized:
             await self.initialize()
         
-        # Detect language
+                         
         detected_lang = detect_language(path, language)
         if not detected_lang or not is_language_supported(detected_lang):
             print(f'[TreeSitterParser] Unsupported language for {path}: {language or "unknown"}')
             return None
         
         try:
-            # Load grammar for this language
+                                            
             grammar = get_language_grammar(detected_lang)
             if not grammar:
                 print(
@@ -112,7 +98,7 @@ class TreeSitterParser:
                 )
                 return None
             
-            # Ensure grammar is a Language object (not PyCapsule)
+                                                                 
             from tree_sitter import Language
             if not isinstance(grammar, Language):
                 try:
@@ -121,14 +107,14 @@ class TreeSitterParser:
                     print(f'[TreeSitterParser] Failed to convert grammar to Language: {e}')
                     return None
             
-            # Get or create parser for this language (cache per language)
+                                                                         
             if detected_lang not in self.parsers:
                 parser = Parser(grammar)
                 self.parsers[detected_lang] = parser
             
             parser = self.parsers[detected_lang]
             
-            # Parse the file
+                            
             source_code = content.encode('utf-8')
             tree = parser.parse(source_code)
             if not tree:
@@ -137,7 +123,7 @@ class TreeSitterParser:
             
             root_node = tree.root_node
             
-            # Extract symbols
+                             
             functions = extract_functions(root_node, detected_lang, source_code)
             classes = extract_classes(root_node, detected_lang, source_code)
             constants = extract_constants(root_node, detected_lang, source_code)
@@ -145,11 +131,11 @@ class TreeSitterParser:
             routes = extract_routes(root_node, detected_lang, source_code)
             default_exports = extract_default_exports(root_node, detected_lang, source_code)
             
-            # Extract dependencies
+                                  
             imports, dependencies = extract_imports(root_node, detected_lang, path, source_code)
             inheritance_deps = extract_inheritance(root_node, detected_lang, path, source_code)
             
-            # Extract function calls
+                                    
             function_calls = extract_function_calls(root_node, detected_lang, path, source_code)
             
             parsed_file = ParsedFile(
@@ -164,9 +150,9 @@ class TreeSitterParser:
                 exports=exports,
             )
             
-            # Store dependencies and calls separately (they'll be merged in parse_files)
-            parsed_file._dependencies = dependencies + inheritance_deps  # type: ignore
-            parsed_file._function_calls = function_calls  # type: ignore
+                                                                                        
+            parsed_file._dependencies = dependencies + inheritance_deps                
+            parsed_file._function_calls = function_calls                
             
             print(
                 f'[TreeSitterParser] ✓ Parsed {path}: {len(functions)} functions, '
@@ -184,15 +170,7 @@ class TreeSitterParser:
         self,
         files: List[Dict[str, Any]]
     ) -> ParseResult:
-        """
-        Parse multiple files
         
-        Args:
-            files: List of dicts with 'path', 'content', and optional 'language' keys
-        
-        Returns:
-            ParseResult with structure, errors, and metadata
-        """
         if not self.initialized:
             await self.initialize()
         
@@ -204,7 +182,7 @@ class TreeSitterParser:
         errors: List[ParseError] = []
         languages = set()
         
-        # Parse each file
+                         
         for file in files:
             try:
                 parsed = await self.parse_file(
@@ -217,11 +195,11 @@ class TreeSitterParser:
                     parsed_files.append(parsed)
                     languages.add(parsed.language)
                     
-                    # Collect dependencies
+                                          
                     deps = getattr(parsed, '_dependencies', [])
                     all_dependencies.extend(deps)
                     
-                    # Collect function calls
+                                            
                     calls = getattr(parsed, '_function_calls', [])
                     all_function_calls.extend(calls)
                 else:
@@ -237,7 +215,7 @@ class TreeSitterParser:
                     language=file.get('language')
                 ))
         
-        # Build function definition map for usage tracking
+                                                          
         defined_functions: Dict[str, Dict[str, str]] = {}
         defined_functions_list: List[Dict[str, str]] = []
         
@@ -248,21 +226,21 @@ class TreeSitterParser:
             
             for cls in parsed_file.classes:
                 for method in cls.methods:
-                    # Include class name for methods: ClassName.methodName
+                                                                          
                     full_name = f'{cls.name}.{method.name}'
                     defined_functions[full_name] = {'name': full_name, 'filePath': parsed_file.path}
                     defined_functions_list.append({'name': full_name, 'filePath': parsed_file.path})
-                    # Also track just method name
+                                                 
                     defined_functions[method.name] = {'name': method.name, 'filePath': parsed_file.path}
                     defined_functions_list.append({'name': method.name, 'filePath': parsed_file.path})
         
-        # Build usage map from function calls
+                                             
         function_usage = build_usage_map(all_function_calls, defined_functions_list)
         
-        # Create dependencies from function calls
+                                                 
         call_dependencies = create_call_dependencies(all_function_calls, defined_functions)
         
-        # Resolve relative import paths to absolute file paths
+                                                              
         file_paths = [f['path'] for f in files]
         resolved_dependencies = self._resolve_dependencies(
             all_dependencies + call_dependencies,
@@ -272,7 +250,7 @@ class TreeSitterParser:
         structure = ParsedCodeStructure(
             files=parsed_files,
             dependencies=resolved_dependencies,
-            modules=[]  # Modules can be added later if needed
+            modules=[]                                        
         )
         
         result = ParseResult(
@@ -300,11 +278,11 @@ class TreeSitterParser:
         dependencies: List[Dependency],
         file_paths: List[str]
     ) -> List[Dependency]:
-        """Resolve relative import paths to actual file paths"""
+        
         resolved = []
         
         for dep in dependencies:
-            # If it's already an absolute path or external package, keep it
+                                                                           
             if (
                 dep.to_path.startswith('/') or
                 dep.to_path.startswith('http') or
@@ -313,11 +291,11 @@ class TreeSitterParser:
                 resolved.append(dep)
                 continue
             
-            # Resolve relative path
+                                   
             from_dir = '/'.join(dep.from_path.split('/')[:-1]) if '/' in dep.from_path else ''
             relative_path = dep.to_path
             
-            # Try to resolve to actual file path
+                                                
             resolved_path = self._resolve_relative_path(from_dir, relative_path, file_paths)
             
             resolved.append(Dependency(
@@ -335,11 +313,11 @@ class TreeSitterParser:
         relative_path: str,
         available_paths: List[str]
     ) -> Optional[str]:
-        """Resolve a relative import path to an actual file path"""
-        # Remove leading ./
+        
+                           
         path = relative_path[2:] if relative_path.startswith('./') else relative_path
         
-        # Build potential paths
+                               
         potential_paths = [
             f'{from_dir}/{path}' if from_dir else path,
             f'{from_dir}/{path}.ts' if from_dir else f'{path}.ts',
@@ -350,13 +328,13 @@ class TreeSitterParser:
             f'{from_dir}/{path}/index.tsx' if from_dir else f'{path}/index.tsx',
         ]
         
-        # Try to find matching file
+                                   
         for potential_path in potential_paths:
             exact_match = next((p for p in available_paths if p == potential_path), None)
             if exact_match:
                 return exact_match
             
-            # Try without extension
+                                   
             without_ext = potential_path.replace('.ts', '').replace('.tsx', '').replace('.js', '').replace('.jsx', '')
             match = next((p for p in available_paths if p.startswith(without_ext)), None)
             if match:

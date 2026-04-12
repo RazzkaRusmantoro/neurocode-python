@@ -1,12 +1,9 @@
-"""
-Internal API routes (e.g. queue index job). Protect with INTERNAL_API_KEY in production.
-"""
 import os
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Header, Depends
 
-from neurocode.models.schemas import QueueIndexRequest, UpdateRepoBranchCommitsRequest
-from neurocode.worker import enqueue_index_repo
+from neurocode.models.schemas import QueueIndexRequest, QueueKGBuildRequest, UpdateRepoBranchCommitsRequest
+from neurocode.worker import enqueue_build_kg, enqueue_index_repo
 from neurocode.config import github_fetcher, mongodb_service
 
 
@@ -14,16 +11,16 @@ router = APIRouter(prefix="/internal", tags=["internal"])
 
 
 def require_internal_key(x_internal_key: Optional[str] = Header(None, alias="X-Internal-Key")) -> None:
-    """Optional: require X-Internal-Key header to match INTERNAL_API_KEY env."""
+    
     key = os.getenv("INTERNAL_API_KEY")
     if not key:
-        return  # No key set = no check
+        return                         
     if x_internal_key != key:
         raise HTTPException(status_code=401, detail="Invalid or missing X-Internal-Key")
 
 
 def _use_default_branch(branch: Optional[str]) -> bool:
-    """True when we should resolve to the repo's default branch instead of main/master."""
+    
     if not branch or not branch.strip():
         return True
     b = branch.strip().lower()
@@ -32,16 +29,10 @@ def _use_default_branch(branch: Optional[str]) -> bool:
 
 @router.post("/queue-index")
 async def queue_index(request: QueueIndexRequest, _: None = Depends(require_internal_key)):
-    """
-    Enqueue a background job to run the RAG index pipeline for a repository.
-    Next.js (or other services) can call this after adding a repo.
-    Uses the repository's default branch when branch is not specified or is main/master.
-    Also stores latest commit per branch in MongoDB (repository_branch_commits) when
-    organization_id and repository_id are provided, so sync/cron can detect new commits later.
-    """
+    
     print(f"[queue-index] Received request: repo_full_name={request.repo_full_name} repository_id={request.repository_id}")
 
-    # Store latest commit per branch first (no dependency on worker). Enables later sync/cron.
+                                                                                              
     if mongodb_service and request.organization_id and request.repository_id:
         try:
             branch_commits = await github_fetcher.list_branches_with_latest_commit(
@@ -85,15 +76,70 @@ async def queue_index(request: QueueIndexRequest, _: None = Depends(require_inte
     return {"enqueued": True, "job_id": job_id}
 
 
+@router.post("/queue-kg-build")
+async def queue_kg_build(request: QueueKGBuildRequest, _: None = Depends(require_internal_key)):
+    
+    from neurocode.services.neo4j_service import Neo4jService
+    import redis as _redis
+
+    print(
+        f"[queue-kg-build] repo_full_name={request.repo_full_name} repo_id={request.repo_id}",
+        flush=True,
+    )
+
+                                                                                 
+    try:
+        neo4j = Neo4jService()
+        try:
+            already_built = await neo4j.graph_exists(request.repo_id)
+        finally:
+            await neo4j.close()
+        if already_built:
+            print(f"[queue-kg-build] Graph already exists in Neo4j — skipping.", flush=True)
+            return {"status": "already_built"}
+    except Exception:
+        pass                                                 
+
+                                                                                
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    lock_key = f"kg_building:{request.repo_id}"
+    try:
+        r = _redis.from_url(redis_url, decode_responses=True)
+        already_queued = not r.set(lock_key, "1", nx=True, ex=900)                               
+        r.close()
+        if already_queued:
+            print(f"[queue-kg-build] Build already in-flight — skipping duplicate.", flush=True)
+            return {"status": "queued", "job_id": "in-flight"}
+    except Exception:
+        pass                                             
+
+    branch = request.branch or "main"
+    if not branch.strip() or branch.strip().lower() in ("main", "master"):
+        resolved = await github_fetcher.get_default_branch(
+            request.repo_full_name, request.github_token
+        )
+        if resolved:
+            branch = resolved
+
+    job_id = await enqueue_build_kg(
+        github_token=request.github_token,
+        repo_full_name=request.repo_full_name,
+        repo_id=request.repo_id,
+        branch=branch,
+    )
+    if job_id is None:
+        raise HTTPException(status_code=503, detail="Failed to enqueue KG build job")
+
+    print(f"[queue-kg-build] Enqueued job_id={job_id}", flush=True)
+    return {"status": "queued", "job_id": job_id}
+
+
 @router.post("/update-repo-branch-commits")
 async def update_repo_branch_commits(
     request: UpdateRepoBranchCommitsRequest,
     _: None = Depends(require_internal_key),
 ):
-    """
-    Fetch latest commit SHA for every branch of a repository and store in MongoDB.
-    Call this when adding a repository (or on a schedule) so we can detect new commits later.
-    """
+    
     if not mongodb_service:
         raise HTTPException(status_code=503, detail="MongoDB service not available")
     branch_commits = await github_fetcher.list_branches_with_latest_commit(

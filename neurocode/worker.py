@@ -1,7 +1,3 @@
-"""
-ARQ background worker: processes index-repo jobs (RAG pipeline), sync-docs, and doc regeneration.
-Run as: python -m neurocode.worker
-"""
 import os
 from typing import Any, Dict, List, Optional, Set
 
@@ -12,13 +8,43 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from neurocode.config import github_fetcher, mongodb_service
-from neurocode.services.index_pipeline import run_index_pipeline
+from neurocode.config import github_fetcher, mongodb_service, vectorizer
+from neurocode.services.index_pipeline import build_collection_name, run_index_pipeline
+from neurocode.services.kg_pipeline import build_kg_for_repo
+from neurocode.services.neo4j_service import Neo4jService
 from neurocode.services.doc_regeneration import (
     regenerate_documentation,
     regenerate_uml_diagram,
 )
 
+
+                                                                                 
+
+def _qdrant_collection_count(collection_name: str) -> int:
+    
+    try:
+        vdb = getattr(vectorizer, "vector_db", None)                                 
+        if vdb and hasattr(vdb, "get_collection_count"):
+            result = vdb.get_collection_count(collection_name)
+            return result if isinstance(result, int) else -1
+    except Exception:
+        pass
+    return -1
+
+
+async def _neo4j_graph_exists(repo_id: str) -> bool:
+    
+    try:
+        neo4j = Neo4jService()
+        try:
+            return await neo4j.graph_exists(repo_id)
+        finally:
+            await neo4j.close()
+    except Exception:
+        return False
+
+
+                                                                                 
 
 async def index_repo_job(
     ctx: Dict[str, Any],
@@ -33,31 +59,108 @@ async def index_repo_job(
     repository_id: Optional[str] = None,
     repository_name: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    ARQ job: run the RAG index pipeline for a repository.
-    All arguments (except ctx) must be JSON-serializable.
-    """
-    print(f"[Worker] Starting index job: repo_full_name={repo_full_name} branch={branch} repository_id={repository_id}", flush=True)
-    result = await run_index_pipeline(
-        github_token=github_token,
-        repo_full_name=repo_full_name,
-        branch=branch,
-        target=target,
-        organization_id=organization_id,
-        organization_short_id=organization_short_id,
-        organization_name=organization_name,
-        repository_id=repository_id,
-        repository_name=repository_name,
+    
+    print(
+        f"[Worker] ▶ index_repo_job: {repo_full_name} branch={branch} repository_id={repository_id}",
+        flush=True,
     )
-    print(f"[Worker] Index job finished: repo_full_name={repo_full_name} repository_id={repository_id} success={result.get('success')}", flush=True)
-    return result
+
+                                                                                 
+    rag_result: Dict[str, Any] = {}
+    skip_rag = False
+
+    if organization_short_id and repository_name:
+        collection_name = build_collection_name(
+            organization_name, organization_short_id, repository_name, branch
+        )
+        count = _qdrant_collection_count(collection_name)
+        if count > 0:
+            print(
+                f"[Worker] Qdrant collection '{collection_name}' already has {count} vectors — "
+                "skipping RAG pipeline.",
+                flush=True,
+            )
+            skip_rag = True
+
+    if not skip_rag:
+        rag_result = await run_index_pipeline(
+            github_token=github_token,
+            repo_full_name=repo_full_name,
+            branch=branch,
+            target=target,
+            organization_id=organization_id,
+            organization_short_id=organization_short_id,
+            organization_name=organization_name,
+            repository_id=repository_id,
+            repository_name=repository_name,
+        )
+        print(
+            f"[Worker] RAG pipeline finished: success={rag_result.get('success')}",
+            flush=True,
+        )
+
+                                                                                
+                                                                              
+    kg_result: Dict[str, Any] = {}
+    if repository_id:
+        if await _neo4j_graph_exists(repository_id):
+            print(
+                f"[Worker] Neo4j graph already exists for repo_id={repository_id} — "
+                "skipping KG build.",
+                flush=True,
+            )
+        else:
+            print(f"[Worker] Building knowledge graph for repo_id={repository_id}...", flush=True)
+            try:
+                kg_result = await build_kg_for_repo(
+                    repo_id=repository_id,
+                    repo_full_name=repo_full_name,
+                    github_token=github_token,
+                    branch=branch,
+                )
+            except Exception as e:
+                print(f"[Worker] KG build failed: {e}", flush=True)
+                kg_result = {"success": False, "error": str(e)}
+    else:
+        print("[Worker] No repository_id — skipping KG build.", flush=True)
+
+    print(
+        f"[Worker] ✓ index_repo_job done: {repo_full_name} "
+        f"skip_rag={skip_rag} kg_success={kg_result.get('success', 'skipped')}",
+        flush=True,
+    )
+    return {
+        "rag": rag_result or {"skipped": True},
+        "kg": kg_result or {"skipped": True},
+    }
+
+
+async def build_kg_job(
+    ctx: Dict[str, Any],
+    *,
+    github_token: str,
+    repo_full_name: str,
+    repo_id: str,
+    branch: str = "main",
+) -> Dict[str, Any]:
+    
+    print(f"[Worker] ▶ build_kg_job: {repo_full_name} repo_id={repo_id}", flush=True)
+    try:
+        result = await build_kg_for_repo(
+            repo_id=repo_id,
+            repo_full_name=repo_full_name,
+            github_token=github_token,
+            branch=branch,
+        )
+        print(f"[Worker] ✓ build_kg_job done: success={result.get('success')}", flush=True)
+        return result
+    except Exception as e:
+        print(f"[Worker] build_kg_job failed: {e}", flush=True)
+        return {"success": False, "error": str(e)}
 
 
 async def sync_docs_job(ctx: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Periodic job: for each tracked repo/branch, if HEAD changed then re-vectorize,
-    find docs whose filePaths intersect changed files, set needsSync and enqueue regeneration.
-    """
+    
     if not mongodb_service:
         return {"success": False, "error": "MongoDB not available"}
     list_result = mongodb_service.list_all_repository_branch_commits()
@@ -195,7 +298,7 @@ async def regenerate_documentation_job(
     *,
     documentation_id: str,
 ) -> Dict[str, Any]:
-    """ARQ job: regenerate one textual documentation (used by sync)."""
+    
     result = await regenerate_documentation(documentation_id)
     return result
 
@@ -205,13 +308,13 @@ async def regenerate_uml_diagram_job(
     *,
     diagram_id: str,
 ) -> Dict[str, Any]:
-    """ARQ job: regenerate one UML diagram (used by sync)."""
+    
     result = await regenerate_uml_diagram(diagram_id)
     return result
 
 
 async def startup(ctx: Dict[str, Any]) -> None:
-    """ARQ worker startup: create Redis pool for sync job to enqueue regeneration jobs."""
+    
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
     try:
         ctx["redis_pool"] = await arq.create_pool(get_redis_settings())
@@ -234,7 +337,7 @@ async def startup(ctx: Dict[str, Any]) -> None:
 
 
 async def shutdown(ctx: Dict[str, Any]) -> None:
-    """ARQ worker shutdown: close Redis pool."""
+    
     pool = ctx.get("redis_pool")
     if pool:
         await pool.close()
@@ -248,7 +351,7 @@ def get_redis_settings() -> arq.connections.RedisSettings:
 
 
 def _mask_redis_url(url: str) -> str:
-    """Mask password in Redis URL for logging."""
+    
     if "@" in url and "://" in url:
         try:
             pre, rest = url.split("://", 1)
@@ -261,13 +364,14 @@ def _mask_redis_url(url: str) -> str:
 
 
 def _cron_jobs() -> list:
-    """Sync docs every 15 minutes at :00, :15, :30, :45."""
+    
     return [cron(sync_docs_job, minute={0, 15, 30, 45})]
 
 
 class WorkerSettings:
     functions = [
         index_repo_job,
+        build_kg_job,
         sync_docs_job,
         regenerate_documentation_job,
         regenerate_uml_diagram_job,
@@ -279,9 +383,32 @@ class WorkerSettings:
 
 
 def main():
-    """Entrypoint for running the worker. Worker owns the event loop (no asyncio.run)."""
+    
     worker = create_worker(WorkerSettings)
     worker.run()
+
+
+async def enqueue_build_kg(
+    github_token: str,
+    repo_full_name: str,
+    repo_id: str,
+    branch: str = "main",
+) -> Optional[str]:
+    
+    try:
+        pool = await arq.create_pool(get_redis_settings())
+        job = await pool.enqueue_job(
+            "build_kg_job",
+            github_token=github_token,
+            repo_full_name=repo_full_name,
+            repo_id=repo_id,
+            branch=branch,
+        )
+        await pool.close()
+        return job.job_id if job else None
+    except Exception as e:
+        print(f"[Queue] Failed to enqueue KG build job: {e}")
+        return None
 
 
 async def enqueue_index_repo(
@@ -295,9 +422,7 @@ async def enqueue_index_repo(
     repository_id: Optional[str] = None,
     repository_name: Optional[str] = None,
 ) -> Optional[str]:
-    """
-    Enqueue an index-repo job. Returns job_id if enqueued, None on failure.
-    """
+    
     try:
         pool = await arq.create_pool(get_redis_settings())
         job = await pool.enqueue_job(

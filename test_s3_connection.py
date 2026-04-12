@@ -1,31 +1,28 @@
-"""
-Test script to verify S3 connection and basic operations
-"""
 import sys
 import os
 from pathlib import Path
 
-# Add parent directory to path to import neurocode
+                                                  
 sys.path.insert(0, str(Path(__file__).parent))
 
 from neurocode.services.s3_service import S3Service
 
 
 def test_s3_connection():
-    """Test S3 connection and basic operations"""
+    
     print("=" * 60)
     print("S3 Connection Test")
     print("=" * 60)
     
     try:
-        # Initialize S3 service
+                               
         print("\n[1/4] Initializing S3 service...")
         s3_service = S3Service()
         print("[OK] S3 service initialized")
         print(f"  Bucket: {s3_service.bucket_name}")
         print(f"  Region: {s3_service.aws_region}")
         
-        # Test connection
+                         
         print("\n[2/4] Testing S3 connection...")
         connection_result = s3_service.check_connection()
         if connection_result["success"]:
@@ -34,7 +31,7 @@ def test_s3_connection():
             print(f"[FAIL] Connection failed: {connection_result.get('error')}")
             return False
         
-        # Test upload
+                     
         print("\n[3/4] Testing file upload...")
         test_content = {
             "test": True,
@@ -59,14 +56,14 @@ def test_s3_connection():
             print(f"[FAIL] Upload failed: {upload_result.get('error')}")
             return False
         
-        # Test download
+                       
         print("\n[4/4] Testing file download...")
         download_result = s3_service.get_documentation(test_s3_key)
         
         if download_result["success"]:
             print(f"[OK] File downloaded successfully")
             print(f"  Content size: {download_result['content_size']} bytes")
-            # Verify content matches
+                                    
             if download_result["content"] == test_content_str:
                 print(f"[OK] Content matches original")
             else:
@@ -75,7 +72,7 @@ def test_s3_connection():
             print(f"[FAIL] Download failed: {download_result.get('error')}")
             return False
         
-        # Cleanup test file
+                           
         print("\n[Cleanup] Deleting test file...")
         delete_result = s3_service.delete_documentation(test_s3_key)
         if delete_result["success"]:

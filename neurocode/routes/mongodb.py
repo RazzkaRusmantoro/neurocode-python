@@ -1,6 +1,3 @@
-"""
-MongoDB test endpoints
-"""
 from fastapi import APIRouter, HTTPException
 from neurocode.config import mongodb_service
 
@@ -9,12 +6,7 @@ router = APIRouter()
 
 @router.get("/api/test-mongodb")
 async def test_mongodb():
-    """
-    Test MongoDB connection
     
-    Returns:
-        Connection status and database information
-    """
     from neurocode.config import mongodb_service
     
     if mongodb_service is None:

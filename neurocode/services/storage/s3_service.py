@@ -1,23 +1,18 @@
-"""
-S3 service for storing and retrieving documentation
-"""
 import os
 import boto3
 from botocore.exceptions import ClientError, NoCredentialsError
 from typing import Optional
 from dotenv import load_dotenv
 
-# Load environment variables
+                            
 load_dotenv()
 
 
 class S3Service:
-    """Service for S3 operations"""
+    
     
     def __init__(self):
-        """
-        Initialize S3 service with credentials from environment variables
-        """
+        
         self.aws_access_key_id = os.getenv("AWS_ACCESS_KEY_ID")
         self.aws_secret_access_key = os.getenv("AWS_SECRET_ACCESS_KEY")
         self.aws_region = os.getenv("AWS_REGION", "us-east-1")
@@ -29,7 +24,7 @@ class S3Service:
                 "AWS_SECRET_ACCESS_KEY, and S3_BUCKET_NAME in environment variables."
             )
         
-        # Initialize S3 client
+                              
         self.s3_client = boto3.client(
             's3',
             aws_access_key_id=self.aws_access_key_id,
@@ -46,30 +41,15 @@ class S3Service:
         documentation_id: Optional[str] = None,
         file_extension: str = "json"
     ) -> str:
-        """
-        Generate S3 key/path for documentation
         
-        Structure: organizations/{org_id}/repositories/{repo_id}/documentation/{branch}/{scope}/{doc_id}.{ext}
-        
-        Args:
-            organization_id: Organization ID
-            repository_id: Repository ID
-            branch: Git branch name
-            scope: Documentation scope (file, module, repository, custom)
-            documentation_id: Optional documentation ID (if None, uses timestamp)
-            file_extension: File extension (default: "json")
-        
-        Returns:
-            S3 key/path string
-        """
         if documentation_id is None:
             from datetime import datetime
             documentation_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Sanitize branch name (replace / with _)
+                                                 
         branch_safe = branch.replace("/", "_")
         
-        # Build S3 key
+                      
         s3_key = (
             f"organizations/{organization_id}/"
             f"repositories/{repository_id}/"
@@ -85,7 +65,7 @@ class S3Service:
         path_id: str,
         file_extension: str = "json"
     ) -> str:
-        """Generate S3 key for onboarding path doc: organizations/{org_id}/onboarding/paths/{path_id}.json"""
+        
         return f"organizations/{organization_id}/onboarding/paths/{path_id}.{file_extension}"
 
     def upload_documentation(
@@ -94,19 +74,9 @@ class S3Service:
         s3_key: str,
         content_type: str = "application/json"
     ) -> dict:
-        """
-        Upload documentation content to S3
         
-        Args:
-            content: Documentation content (string)
-            s3_key: S3 object key/path
-            content_type: Content type (default: "application/json")
-        
-        Returns:
-            Dictionary with success status and S3 URL/key
-        """
         try:
-            # Upload to S3
+                          
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=s3_key,
@@ -114,7 +84,7 @@ class S3Service:
                 ContentType=content_type
             )
             
-            # Generate S3 URL
+                             
             s3_url = f"s3://{self.bucket_name}/{s3_key}"
             
             return {
@@ -144,23 +114,15 @@ class S3Service:
             }
     
     def get_documentation(self, s3_key: str) -> dict:
-        """
-        Retrieve documentation content from S3
         
-        Args:
-            s3_key: S3 object key/path
-        
-        Returns:
-            Dictionary with success status and content
-        """
         try:
-            # Get object from S3
+                                
             response = self.s3_client.get_object(
                 Bucket=self.bucket_name,
                 Key=s3_key
             )
             
-            # Read content
+                          
             content = response['Body'].read().decode('utf-8')
             
             return {
@@ -190,15 +152,7 @@ class S3Service:
             }
     
     def delete_documentation(self, s3_key: str) -> dict:
-        """
-        Delete documentation from S3
         
-        Args:
-            s3_key: S3 object key/path
-        
-        Returns:
-            Dictionary with success status
-        """
         try:
             self.s3_client.delete_object(
                 Bucket=self.bucket_name,
@@ -224,14 +178,9 @@ class S3Service:
             }
     
     def check_connection(self) -> dict:
-        """
-        Check if S3 connection is working
         
-        Returns:
-            Dictionary with connection status
-        """
         try:
-            # Try to list bucket (head_bucket is more efficient)
+                                                                
             self.s3_client.head_bucket(Bucket=self.bucket_name)
             
             return {

@@ -1,10 +1,3 @@
-"""
-Hot Zones helpers: semantic recommendations for code areas (files/classes/functions) by task query.
-
-This complements the Next.js Hot Zones page by letting users type a task like "login" and
-getting suggested files/symbols from the org-scoped vector index.
-"""
-
 from typing import List, Dict, Any, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException
@@ -17,10 +10,7 @@ router = APIRouter(prefix="/api/hot-zones", tags=["hot-zones"])
 
 
 def _repo_slug_from_collection_name(collection_name: str) -> str:
-    """
-    Collection name format: {orgName}_{orgShortId}_{repoName}_{branch}
-    Return the repo segment (repoName) which may contain underscores.
-    """
+    
     parts = (collection_name or "").split("_")
     if len(parts) > 3:
         return "_".join(parts[2:-1]).lower()
@@ -30,9 +20,7 @@ def _repo_slug_from_collection_name(collection_name: str) -> str:
 
 
 def _canonical_repo_token(repo_url_name: str) -> str:
-    """
-    Normalize repo urlName (typically hyphenated) to match collection repo segment (underscore).
-    """
+    
     token = (repo_url_name or "").strip().lower()
     token = token.replace("-", "_").replace("/", "_").replace(".", "_")
     token = "".join(c if c.isalnum() or c == "_" else "_" for c in token)
@@ -53,16 +41,14 @@ def _filter_collections_by_repo_url_names(collections: List[str], repo_url_names
         if repo_seg in wanted:
             matched.append(coll)
             continue
-        # fallback: substring match if repo name token is part of segment
+                                                                         
         if any(w in repo_seg for w in wanted):
             matched.append(coll)
     return matched if matched else list(collections)
 
 
 def _aggregate_suggestions(hits: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """
-    Aggregate chunk hits into suggested files and symbols with a simple score sum.
-    """
+    
     file_scores: Dict[str, float] = {}
     symbol_scores: Dict[str, float] = {}
 
@@ -111,7 +97,7 @@ async def recommend_areas(request: HotZonesRecommendAreasRequest) -> dict:
 
     collections = _filter_collections_by_repo_url_names(all_collections, request.repo_url_names or [])
 
-    # Bound work: search each collection, merge, then aggregate by file/symbol
+                                                                              
     per_coll_k = 8
     global_k = 30
 

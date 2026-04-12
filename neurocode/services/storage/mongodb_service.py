@@ -1,7 +1,3 @@
-"""
-MongoDB service for storing and retrieving documentation metadata,
-code references, and glossary terms
-"""
 import os
 from typing import Optional, Dict, List, Any
 from datetime import datetime
@@ -11,17 +7,15 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from dotenv import load_dotenv
 
-# Load environment variables
+                            
 load_dotenv()
 
 
 class MongoDBService:
-    """Service for MongoDB operations"""
+    
     
     def __init__(self):
-        """
-        Initialize MongoDB service with connection string from environment variables
-        """
+        
         self.mongodb_uri = os.getenv("MONGODB_URI")
         self.database_name = os.getenv("MONGODB_DATABASE", "NeuroCode")
         
@@ -31,11 +25,11 @@ class MongoDBService:
                 "Please set MONGODB_URI in environment variables."
             )
         
-        # Initialize MongoDB client
+                                   
         try:
             self.client = MongoClient(self.mongodb_uri)
             self.db = self.client[self.database_name]
-            # Test connection
+                             
             self.client.admin.command('ping')
             print(f"[MongoDBService] ✓ Connected to MongoDB database: {self.database_name}")
         except ConnectionFailure as e:
@@ -44,17 +38,12 @@ class MongoDBService:
             raise Exception(f"MongoDB initialization error: {str(e)}")
     
     def check_connection(self) -> Dict[str, Any]:
-        """
-        Check if MongoDB connection is working
         
-        Returns:
-            Dictionary with connection status
-        """
         try:
-            # Ping the database
+                               
             self.client.admin.command('ping')
             
-            # Get database stats
+                                
             stats = self.db.command("dbstats")
             
             return {
@@ -98,31 +87,9 @@ class MongoDBService:
         similarity_score: Optional[float] = None,
         code: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        Upsert a code reference (insert if new, update if exists)
         
-        Args:
-            organization_id: Organization ID (MongoDB ObjectId string)
-            repository_id: Repository ID (MongoDB ObjectId string)
-            reference_id: Unique identifier for the reference (e.g., "processCitation")
-            name: Function/class name
-            reference_type: Type ('function', 'class', 'method', 'module')
-            description: Description of the reference
-            module: Optional module path
-            file_path: Optional file path in repository
-            signature: Optional function/class signature
-            parameters: Optional list of parameter dictionaries
-            returns: Optional return type and description
-            examples: Optional list of example dictionaries
-            see_also: Optional list of other reference IDs
-            similar_to: Optional list of similar reference IDs
-            similarity_score: Optional similarity score
-            
-        Returns:
-            Dictionary with success status and reference data
-        """
         try:
-            # Convert string IDs to ObjectId
+                                            
             try:
                 org_obj_id = ObjectId(organization_id)
                 repo_obj_id = ObjectId(repository_id)
@@ -132,7 +99,7 @@ class MongoDBService:
                     "error": f"Invalid ObjectId format: {str(e)}"
                 }
             
-            # Build document
+                            
             now = datetime.utcnow()
             document = {
                 "organizationId": org_obj_id,
@@ -144,7 +111,7 @@ class MongoDBService:
                 "updatedAt": now
             }
             
-            # Add optional fields
+                                 
             if module:
                 document["module"] = module
             if file_path:
@@ -164,9 +131,9 @@ class MongoDBService:
             if similarity_score is not None:
                 document["similarityScore"] = similarity_score
             if code:
-                document["code"] = code  # Raw code snippet
+                document["code"] = code                    
             
-            # Check if reference already exists
+                                               
             existing = self.db.code_references.find_one({
                 "organizationId": org_obj_id,
                 "repositoryId": repo_obj_id,
@@ -174,7 +141,7 @@ class MongoDBService:
             })
             
             if existing:
-                # Update existing document
+                                          
                 document["createdAt"] = existing.get("createdAt", now)
                 result = self.db.code_references.update_one(
                     {
@@ -191,7 +158,7 @@ class MongoDBService:
                     "reference_id": str(existing["_id"])
                 }
             else:
-                # Insert new document
+                                     
                 document["createdAt"] = now
                 result = self.db.code_references.insert_one(document)
                 return {
@@ -223,24 +190,9 @@ class MongoDBService:
         similar_to: Optional[List[str]] = None,
         similarity_score: Optional[float] = None
     ) -> Dict[str, Any]:
-        """
-        Upsert a glossary term (insert if new, update if exists)
         
-        Args:
-            organization_id: Organization ID (MongoDB ObjectId string)
-            repository_id: Repository ID (MongoDB ObjectId string)
-            term_id: Unique identifier for the term (e.g., "citation-pipeline")
-            term: Term name
-            definition: Full definition
-            related_terms: Optional list of related term IDs
-            similar_to: Optional list of similar term IDs
-            similarity_score: Optional similarity score
-            
-        Returns:
-            Dictionary with success status and term data
-        """
         try:
-            # Convert string IDs to ObjectId
+                                            
             try:
                 org_obj_id = ObjectId(organization_id)
                 repo_obj_id = ObjectId(repository_id)
@@ -250,7 +202,7 @@ class MongoDBService:
                     "error": f"Invalid ObjectId format: {str(e)}"
                 }
             
-            # Build document
+                            
             now = datetime.utcnow()
             document = {
                 "organizationId": org_obj_id,
@@ -261,7 +213,7 @@ class MongoDBService:
                 "updatedAt": now
             }
             
-            # Add optional fields
+                                 
             if related_terms:
                 document["relatedTerms"] = related_terms
             if similar_to:
@@ -269,7 +221,7 @@ class MongoDBService:
             if similarity_score is not None:
                 document["similarityScore"] = similarity_score
             
-            # Check if term already exists
+                                          
             existing = self.db.glossaries.find_one({
                 "organizationId": org_obj_id,
                 "repositoryId": repo_obj_id,
@@ -277,7 +229,7 @@ class MongoDBService:
             })
             
             if existing:
-                # Update existing document
+                                          
                 document["createdAt"] = existing.get("createdAt", now)
                 result = self.db.glossaries.update_one(
                     {
@@ -294,7 +246,7 @@ class MongoDBService:
                     "term_id": str(existing["_id"])
                 }
             else:
-                # Insert new document
+                                     
                 document["createdAt"] = now
                 result = self.db.glossaries.insert_one(document)
                 return {
@@ -320,18 +272,9 @@ class MongoDBService:
         organization_id: str,
         repository_id: str
     ) -> Dict[str, Any]:
-        """
-        Get all code references for a repository
         
-        Args:
-            organization_id: Organization ID (MongoDB ObjectId string)
-            repository_id: Repository ID (MongoDB ObjectId string)
-            
-        Returns:
-            Dictionary with success status and list of code references
-        """
         try:
-            # Convert string IDs to ObjectId
+                                            
             try:
                 org_obj_id = ObjectId(organization_id)
                 repo_obj_id = ObjectId(repository_id)
@@ -341,13 +284,13 @@ class MongoDBService:
                     "error": f"Invalid ObjectId format: {str(e)}"
                 }
             
-            # Find all references for this repository
+                                                     
             references = list(self.db.code_references.find({
                 "organizationId": org_obj_id,
                 "repositoryId": repo_obj_id
             }))
             
-            # Convert ObjectIds to strings for JSON serialization
+                                                                 
             for ref in references:
                 ref["_id"] = str(ref["_id"])
                 ref["organizationId"] = str(ref["organizationId"])
@@ -370,18 +313,9 @@ class MongoDBService:
         organization_id: str,
         repository_id: str
     ) -> Dict[str, Any]:
-        """
-        Get all glossary terms for a repository
         
-        Args:
-            organization_id: Organization ID (MongoDB ObjectId string)
-            repository_id: Repository ID (MongoDB ObjectId string)
-            
-        Returns:
-            Dictionary with success status and list of glossary terms
-        """
         try:
-            # Convert string IDs to ObjectId
+                                            
             try:
                 org_obj_id = ObjectId(organization_id)
                 repo_obj_id = ObjectId(repository_id)
@@ -391,13 +325,13 @@ class MongoDBService:
                     "error": f"Invalid ObjectId format: {str(e)}"
                 }
             
-            # Find all terms for this repository
+                                                
             terms = list(self.db.glossaries.find({
                 "organizationId": org_obj_id,
                 "repositoryId": repo_obj_id
             }))
             
-            # Convert ObjectIds to strings for JSON serialization
+                                                                 
             for term in terms:
                 term["_id"] = str(term["_id"])
                 term["organizationId"] = str(term["organizationId"])
@@ -424,23 +358,9 @@ class MongoDBService:
         description: str,
         threshold: float = 0.7
     ) -> Dict[str, Any]:
-        """
-        Find similar code references (for deduplication)
-        This is a placeholder - actual similarity would use embeddings
         
-        Args:
-            organization_id: Organization ID
-            repository_id: Repository ID
-            reference_id: Current reference ID
-            name: Function/class name
-            description: Description text
-            threshold: Similarity threshold (0.0 to 1.0)
-            
-        Returns:
-            Dictionary with similar references found
-        """
-        # TODO: Implement actual similarity search using embeddings
-        # For now, return empty list
+                                                                   
+                                    
         return {
             "success": True,
             "similar_references": [],
@@ -455,11 +375,7 @@ class MongoDBService:
         *,
         repo_full_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Store or update the latest commit SHA per branch for a repository.
-        Used when adding a repo or when syncing; keyed by organization_id + repository_id.
-        branch_latest_commits: e.g. {"main": "abc123", "develop": "def456"}.
-        """
+        
         try:
             try:
                 org_obj_id = ObjectId(organization_id)
@@ -491,11 +407,7 @@ class MongoDBService:
             return {"success": False, "error": str(e)}
 
     def list_all_repository_branch_commits(self) -> Dict[str, Any]:
-        """
-        List all repos we track (for the sync job). Returns documents from
-        repository_branch_commits with organizationId, repositoryId, repoFullName,
-        branchLatestCommits, updatedAt (ObjectIds as strings).
-        """
+        
         try:
             cursor = self.db.repository_branch_commits.find({})
             docs = []
@@ -515,13 +427,7 @@ class MongoDBService:
         organization_id: str,
         repository_id: str,
     ) -> Dict[str, Any]:
-        """
-        Resolve a GitHub token for a repo using the same logic as Next.js:
-        1. Try the user who added the repo (repository.addedBy -> user.github.accessToken).
-        2. Fallback to the organization owner (organization.ownerId -> user.github.accessToken).
-        Requires the same MongoDB to have users, repositories, and organizations collections.
-        Returns { "success": True, "token": "..." } or { "success": False, "error": "..." }.
-        """
+        
         try:
             repo_obj_id = ObjectId(repository_id)
             org_obj_id = ObjectId(organization_id)
@@ -540,7 +446,7 @@ class MongoDBService:
             return None
 
         try:
-            # 1. Repository -> addedBy
+                                      
             repo = self.db.repositories.find_one({"_id": repo_obj_id})
             if repo and repo.get("addedBy"):
                 added_by_id = repo["addedBy"]
@@ -549,7 +455,7 @@ class MongoDBService:
                 if token:
                     return {"success": True, "token": token, "source": "addedBy"}
 
-            # 2. Organization -> ownerId
+                                        
             org = self.db.organizations.find_one({"_id": org_obj_id})
             if org and org.get("ownerId"):
                 owner_id = org["ownerId"]
@@ -567,10 +473,7 @@ class MongoDBService:
         organization_id: str,
         repository_id: str,
     ) -> Dict[str, Any]:
-        """
-        Get the stored branch -> latest commit mapping for a repository.
-        Returns { "success": True, "branchLatestCommits": { "main": "sha", ... } } or error.
-        """
+        
         try:
             try:
                 org_obj_id = ObjectId(organization_id)
@@ -595,10 +498,7 @@ class MongoDBService:
         repository_id: str,
         branch: str,
     ) -> Dict[str, Any]:
-        """
-        List all textual documentation records for a repository and branch.
-        Returns list with _id, filePaths, s3Key, title, prompt, needsSync, isUpdating, etc.
-        """
+        
         try:
             repo_obj_id = ObjectId(repository_id)
         except (InvalidId, TypeError) as e:
@@ -622,10 +522,7 @@ class MongoDBService:
         repository_id: str,
         branch: str,
     ) -> Dict[str, Any]:
-        """
-        List all UML diagram records for a repository and branch.
-        Returns list with _id, filePaths, diagramData, type, prompt, needsSync, isUpdating, etc.
-        """
+        
         try:
             repo_obj_id = ObjectId(repository_id)
         except (InvalidId, TypeError) as e:
@@ -645,10 +542,7 @@ class MongoDBService:
             return {"success": False, "error": str(e)}
 
     def get_existing_uml_titles_descriptions(self, repository_id: str) -> Dict[str, Any]:
-        """
-        Get existing name and description for all UML diagrams in a repository.
-        Used to generate unique title/description for new diagrams.
-        """
+        
         try:
             repo_obj_id = ObjectId(repository_id)
         except (InvalidId, TypeError) as e:
@@ -674,10 +568,7 @@ class MongoDBService:
         self,
         documentation_ids: List[str],
     ) -> Dict[str, Any]:
-        """
-        Set needsSync=true and updatedAt for the given documentation _ids.
-        Used by the sync job after detecting changed files that affect these docs.
-        """
+        
         if not documentation_ids:
             return {"success": True, "modified_count": 0}
         try:
@@ -698,10 +589,7 @@ class MongoDBService:
         self,
         diagram_ids: List[str],
     ) -> Dict[str, Any]:
-        """
-        Set needsSync=true and updatedAt for the given UML diagram _ids.
-        Used by the sync job after detecting changed files that affect these diagrams.
-        """
+        
         if not diagram_ids:
             return {"success": True, "modified_count": 0}
         try:
@@ -723,10 +611,7 @@ class MongoDBService:
         documentation_id: str,
         is_updating: bool,
     ) -> Dict[str, Any]:
-        """
-        Set isUpdating (and updatedAt) for a single documentation. Use when starting or
-        finishing regeneration so the UI can show "Updating..." and avoid double-sync.
-        """
+        
         try:
             obj_id = ObjectId(documentation_id)
         except (InvalidId, TypeError) as e:
@@ -746,10 +631,7 @@ class MongoDBService:
         diagram_id: str,
         is_updating: bool,
     ) -> Dict[str, Any]:
-        """
-        Set isUpdating (and updatedAt) for a single UML diagram. Use when starting or
-        finishing regeneration.
-        """
+        
         try:
             obj_id = ObjectId(diagram_id)
         except (InvalidId, TypeError) as e:
@@ -765,11 +647,7 @@ class MongoDBService:
             return {"success": False, "error": str(e)}
 
     def get_documentation_by_id(self, documentation_id: str) -> Dict[str, Any]:
-        """
-        Get a single documentation record by _id. Used by regeneration.
-        Returns doc with _id, organizationId, repositoryId, branch, s3Key, title, prompt,
-        filePaths, documentationType, needsSync, isUpdating as strings where needed.
-        """
+        
         try:
             obj_id = ObjectId(documentation_id)
         except (InvalidId, TypeError) as e:
@@ -790,11 +668,7 @@ class MongoDBService:
         organization_id: str,
         repository_id: str,
     ) -> Dict[str, Any]:
-        """
-        Get organization and repository names for building vector collection name
-        and repo_name for LLM. Returns organization_name, organization_short_id,
-        repository_name, repo_full_name (from repo url if GitHub).
-        """
+        
         try:
             org_obj_id = ObjectId(organization_id)
             repo_obj_id = ObjectId(repository_id)
@@ -838,10 +712,7 @@ class MongoDBService:
         documentation_id: str,
         file_paths: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """
-        Set needsSync=false, isUpdating=false, and updatedAt for a documentation.
-        Optionally update filePaths (e.g. after regeneration). Call after regeneration completes.
-        """
+        
         try:
             obj_id = ObjectId(documentation_id)
         except (InvalidId, TypeError) as e:
@@ -867,10 +738,7 @@ class MongoDBService:
         diagram_data: Optional[Dict[str, Any]] = None,
         file_paths: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """
-        Set needsSync=false, isUpdating=false, and updatedAt for a UML diagram.
-        Optionally update diagramData and filePaths after regeneration.
-        """
+        
         try:
             obj_id = ObjectId(diagram_id)
         except (InvalidId, TypeError) as e:
@@ -904,10 +772,7 @@ class MongoDBService:
         documentation_type: Optional[str] = None,
         prompt: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Insert a textual documentation record (same idea as UML: filePaths, needsSync, isUpdating).
-        Used so the worker can find docs by repo+branch and check file path overlap.
-        """
+        
         try:
             try:
                 org_obj_id = ObjectId(organization_id)
@@ -953,25 +818,7 @@ class MongoDBService:
         branch: Optional[str] = None,
         description: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Insert a new UML diagram into uml_diagrams collection.
-
-        Args:
-            organization_id: Organization ID (MongoDB ObjectId string)
-            repository_id: Repository ID (MongoDB ObjectId string)
-            diagram_type: Type of diagram (e.g. "class")
-            name: Display name (e.g. LLM-generated title)
-            slug: URL-safe slug, unique per repo (e.g. "class-auth-module")
-            prompt: User prompt used to generate the diagram
-            diagram_data: Full diagram JSON (classes, relationships, etc.)
-            s3_key: Optional S3 key for backup
-            file_paths: Optional list of file paths from chunks used in generation (for sync tracking)
-            branch: Branch this diagram was generated for (for worker repo+branch filtering)
-            description: Optional LLM-generated detailed description for the diagram
-
-        Returns:
-            Dictionary with success status and diagram _id
-        """
+        
         try:
             try:
                 org_obj_id = ObjectId(organization_id)
@@ -1013,7 +860,7 @@ class MongoDBService:
             return {"success": False, "error": str(e)}
 
     def get_uml_diagram_by_id(self, diagram_id: str) -> Dict[str, Any]:
-        """Get a single UML diagram by its _id."""
+        
         try:
             obj_id = ObjectId(diagram_id)
         except (InvalidId, TypeError):
@@ -1032,7 +879,7 @@ class MongoDBService:
         repository_id: str,
         slug: str,
     ) -> Dict[str, Any]:
-        """Get a single UML diagram by organization, repository, and slug."""
+        
         try:
             org_obj_id = ObjectId(organization_id)
             repo_obj_id = ObjectId(repository_id)
@@ -1052,17 +899,17 @@ class MongoDBService:
         doc["repositoryId"] = str(doc["repositoryId"])
         return {"success": True, "diagram": doc}
 
-    # ---- Chat persistence (onboarding chatbot) ----
+                                                     
     def create_chat(
         self,
         user_id: str,
         title: str = "New chat",
         context_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create a new chat for a user, optionally scoped to a context (e.g. per-documentation). Returns { success, chat_id, chat }."""
+        
         try:
             now = datetime.utcnow()
-            # Initial welcome message so the chat has at least one message
+                                                                          
             welcome = {
                 "id": "welcome",
                 "role": "assistant",
@@ -1089,7 +936,7 @@ class MongoDBService:
             return {"success": False, "error": str(e)}
 
     def _chat_doc_to_response(self, doc: Dict[str, Any], chat_id: Optional[str] = None) -> Dict[str, Any]:
-        """Convert MongoDB chat document to API response shape (id, title, messages, createdAt, updatedAt)."""
+        
         mid = chat_id or str(doc.get("_id", ""))
         messages = []
         for m in doc.get("messages") or []:
@@ -1119,7 +966,7 @@ class MongoDBService:
         }
 
     def list_chats_by_user(self, user_id: str, context_id: Optional[str] = None) -> Dict[str, Any]:
-        """List chats for a user, optionally filtered by context_id (per-documentation scope). Most recently updated first."""
+        
         try:
             query: Dict[str, Any] = {"userId": user_id}
             if context_id is not None:
@@ -1139,7 +986,7 @@ class MongoDBService:
             return {"success": False, "error": str(e)}
 
     def get_chat(self, chat_id: str, user_id: str) -> Dict[str, Any]:
-        """Get a single chat by id; verify userId. Returns { success, chat } or { success: False }."""
+        
         try:
             obj_id = ObjectId(chat_id)
         except (InvalidId, TypeError):
@@ -1161,7 +1008,7 @@ class MongoDBService:
         *,
         title_if_first_user: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Append user and assistant messages; optionally set title if this is the first user message."""
+        
         try:
             obj_id = ObjectId(chat_id)
         except (InvalidId, TypeError):
@@ -1202,7 +1049,7 @@ class MongoDBService:
             return {"success": False, "error": str(e)}
 
     def close(self):
-        """Close MongoDB connection"""
+        
         if self.client:
             self.client.close()
             print("[MongoDBService] MongoDB connection closed")

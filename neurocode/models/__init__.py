@@ -1,2 +1,0 @@
-"""NeuroCode models module"""
-

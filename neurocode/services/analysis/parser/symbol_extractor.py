@@ -1,6 +1,3 @@
-"""
-Extract symbols (functions, classes, methods) from Tree-sitter AST
-"""
 from typing import List, Optional
 from tree_sitter import Node
 from neurocode.services.analysis.parser.models import (
@@ -17,17 +14,17 @@ from neurocode.services.analysis.parser.models import (
 
 
 def extract_functions(root_node: Node, language: str, source_code: bytes) -> List[FunctionDefinition]:
-    """Extract functions from AST"""
+    
     functions: List[FunctionDefinition] = []
     
     if language in ('typescript', 'tsx', 'javascript', 'jsx'):
-        # Extract function declarations
+                                       
         for node in _extract_nodes_by_type(root_node, 'function_declaration'):
             func = _extract_function_from_node(node, language, source_code)
             if func:
                 functions.append(func)
         
-        # Extract arrow functions from variable_declaration (var) and lexical_declaration (const/let)
+                                                                                                     
         for node in _extract_nodes_by_type(root_node, 'variable_declaration'):
             for arrow_func in _extract_arrow_functions_from_declaration(node, language, source_code):
                 if arrow_func:
@@ -38,7 +35,7 @@ def extract_functions(root_node: Node, language: str, source_code: bytes) -> Lis
                     functions.append(arrow_func)
     
     elif language == 'python':
-        # Extract Python function definitions
+                                             
         for node in _extract_nodes_by_type(root_node, 'function_definition'):
             func = _extract_python_function_from_node(node, source_code)
             if func:
@@ -48,7 +45,7 @@ def extract_functions(root_node: Node, language: str, source_code: bytes) -> Lis
 
 
 def extract_constants(root_node: Node, language: str, source_code: bytes) -> List[ConstantDefinition]:
-    """Extract top-level constants (const/let with object or array literal)."""
+    
     constants: List[ConstantDefinition] = []
     if language not in ('typescript', 'tsx', 'javascript', 'jsx'):
         return constants
@@ -100,7 +97,7 @@ def extract_constants(root_node: Node, language: str, source_code: bytes) -> Lis
 
 
 def extract_classes(root_node: Node, language: str, source_code: bytes) -> List[ClassDefinition]:
-    """Extract classes from AST"""
+    
     classes: List[ClassDefinition] = []
     
     if language in ('typescript', 'tsx', 'javascript', 'jsx'):
@@ -119,17 +116,17 @@ def extract_classes(root_node: Node, language: str, source_code: bytes) -> List[
 
 
 def extract_exports(root_node: Node, language: str, source_code: bytes) -> List[ExportStatement]:
-    """Extract exports from AST"""
+    
     exports: List[ExportStatement] = []
     
     if language in ('typescript', 'tsx', 'javascript', 'jsx'):
-        # Named exports: export function foo() {}
+                                                 
         for node in _extract_nodes_by_type(root_node, 'export_statement'):
             export_stmt = _extract_export_from_node(node, source_code)
             if export_stmt:
                 exports.append(export_stmt)
         
-        # Export declarations: export class Foo {}
+                                                  
         for node in _extract_nodes_by_type(root_node, 'class_declaration'):
             if _has_export_modifier(node, source_code):
                 name_node = node.child_by_field_name('name')
@@ -147,14 +144,14 @@ def extract_exports(root_node: Node, language: str, source_code: bytes) -> List[
                         exports.append(ExportStatement(name=func_name, type='function'))
     
     elif language == 'python':
-        # Python doesn't have explicit exports, but we can check __all__
+                                                                        
         pass
     
     return exports
 
 
 def extract_routes(root_node: Node, language: str, source_code: bytes) -> List[RouteDefinition]:
-    """Extract route definitions (router.get('/path', handler), app.post(...), etc.)."""
+    
     routes: List[RouteDefinition] = []
     http_methods = ('get', 'post', 'put', 'delete', 'patch', 'use')
 
@@ -169,7 +166,7 @@ def extract_routes(root_node: Node, language: str, source_code: bytes) -> List[R
             method = _get_node_text(property_node, source_code).lower()
             if method not in http_methods:
                 continue
-            # First argument should be path (string)
+                                                    
             args = node.child_by_field_name('arguments')
             if not args or args.named_child_count == 0:
                 continue
@@ -189,7 +186,7 @@ def extract_routes(root_node: Node, language: str, source_code: bytes) -> List[R
             ))
 
     elif language == 'python':
-        # Decorator-based routes: @app.get("/path"), @router.post("/path")
+                                                                          
         for node in _extract_nodes_by_type(root_node, 'decorator'):
             call_node = node.named_children[0] if node.named_child_count else None
             if not call_node or call_node.type != 'call':
@@ -222,13 +219,13 @@ def extract_routes(root_node: Node, language: str, source_code: bytes) -> List[R
 
 
 def extract_default_exports(root_node: Node, language: str, source_code: bytes) -> List[DefaultExportDefinition]:
-    """Extract default export statements (export default ...) for full coverage."""
+    
     default_exports: List[DefaultExportDefinition] = []
     if language not in ('typescript', 'tsx', 'javascript', 'jsx'):
         return default_exports
     for node in _extract_nodes_by_type(root_node, 'export_statement'):
         text = _get_node_text(node, source_code)
-        if 'default' in text.split()[:3]:  # export default ...
+        if 'default' in text.split()[:3]:                      
             default_exports.append(DefaultExportDefinition(
                 startLine=node.start_point[0] + 1,
                 endLine=node.end_point[0] + 1,
@@ -236,10 +233,10 @@ def extract_default_exports(root_node: Node, language: str, source_code: bytes) 
     return default_exports
 
 
-# Helper functions for TypeScript/JavaScript
+                                            
 
 def _extract_function_from_node(node: Node, language: str, source_code: bytes) -> Optional[FunctionDefinition]:
-    """Extract function from function_declaration node"""
+    
     name_node = node.child_by_field_name('name')
     if not name_node:
         return None
@@ -266,7 +263,7 @@ def _extract_function_from_node(node: Node, language: str, source_code: bytes) -
 def _extract_arrow_functions_from_declaration(
     node: Node, language: str, source_code: bytes
 ) -> List[FunctionDefinition]:
-    """Extract all arrow functions from a variable_declaration or lexical_declaration (const/let)."""
+    
     results: List[FunctionDefinition] = []
     for child in node.named_children:
         if child.type != 'variable_declarator':
@@ -283,18 +280,18 @@ def _extract_arrow_function_from_declarator(
     language: str,
     source_code: bytes,
 ) -> Optional[FunctionDefinition]:
-    """Extract arrow function from a single variable_declarator."""
+    
     name_node = declarator.child_by_field_name('name')
     value_node = declarator.child_by_field_name('value')
     
     if not name_node or not value_node:
         return None
     
-    # Check if value is an arrow function or function expression
+                                                                
     if value_node.type not in ('arrow_function', 'function', 'function_expression'):
         return None
     
-    # For object patterns (e.g. const { x } = ...) name_node might be different; skip if no simple name
+                                                                                                       
     name = _get_node_text(name_node, source_code)
     if not name or name.startswith('{') or name.startswith('['):
         return None
@@ -318,7 +315,7 @@ def _extract_arrow_function_from_declarator(
 
 
 def _extract_class_from_node(node: Node, language: str, source_code: bytes) -> Optional[ClassDefinition]:
-    """Extract class from class_declaration node"""
+    
     name_node = node.child_by_field_name('name')
     if not name_node:
         return None
@@ -329,13 +326,13 @@ def _extract_class_from_node(node: Node, language: str, source_code: bytes) -> O
     properties: List[PropertyDefinition] = []
     
     if class_body:
-        # Extract methods
+                         
         for method_node in _extract_nodes_by_type(class_body, 'method_definition'):
             method = _extract_method_from_node(method_node, source_code)
             if method:
                 methods.append(method)
         
-        # Extract properties
+                            
         for prop_node in _extract_nodes_by_type(class_body, 'property_signature'):
             prop = _extract_property_from_node(prop_node, source_code)
             if prop:
@@ -351,7 +348,7 @@ def _extract_class_from_node(node: Node, language: str, source_code: bytes) -> O
         methods=methods,
         properties=properties,
         extends=extends,
-        implements=None,  # Would need to extract implements clause
+        implements=None,                                           
         isExported=is_exported,
         startLine=node.start_point[0] + 1,
         endLine=node.end_point[0] + 1
@@ -359,7 +356,7 @@ def _extract_class_from_node(node: Node, language: str, source_code: bytes) -> O
 
 
 def _extract_method_from_node(node: Node, source_code: bytes) -> Optional[MethodDefinition]:
-    """Extract method from method_definition node"""
+    
     name_node = node.child_by_field_name('name')
     if not name_node:
         return None
@@ -384,7 +381,7 @@ def _extract_method_from_node(node: Node, source_code: bytes) -> Optional[Method
 
 
 def _extract_property_from_node(node: Node, source_code: bytes) -> Optional[PropertyDefinition]:
-    """Extract property from property_signature node"""
+    
     name_node = node.child_by_field_name('name')
     if not name_node:
         return None
@@ -403,10 +400,10 @@ def _extract_property_from_node(node: Node, source_code: bytes) -> Optional[Prop
     )
 
 
-# Python-specific extractors
+                            
 
 def _extract_python_function_from_node(node: Node, source_code: bytes) -> Optional[FunctionDefinition]:
-    """Extract Python function from function_definition node"""
+    
     name_node = node.child_by_field_name('name')
     if not name_node:
         return None
@@ -415,7 +412,7 @@ def _extract_python_function_from_node(node: Node, source_code: bytes) -> Option
     parameters = _extract_python_parameters(node.child_by_field_name('parameters'), source_code)
     body = _extract_function_body(node, source_code)
     
-    # Check for async
+                     
     is_async = False
     for child in node.named_children:
         if child.type == 'async':
@@ -425,9 +422,9 @@ def _extract_python_function_from_node(node: Node, source_code: bytes) -> Option
     return FunctionDefinition(
         name=name,
         parameters=parameters,
-        returnType=None,  # Python return types are in annotations, would need to extract
+        returnType=None,                                                                 
         isAsync=is_async,
-        isExported=False,  # Python doesn't have explicit exports
+        isExported=False,                                        
         startLine=node.start_point[0] + 1,
         endLine=node.end_point[0] + 1,
         body=body
@@ -435,7 +432,7 @@ def _extract_python_function_from_node(node: Node, source_code: bytes) -> Option
 
 
 def _extract_python_class_from_node(node: Node, source_code: bytes) -> Optional[ClassDefinition]:
-    """Extract Python class from class_definition node"""
+    
     name_node = node.child_by_field_name('name')
     if not name_node:
         return None
@@ -450,11 +447,11 @@ def _extract_python_class_from_node(node: Node, source_code: bytes) -> Optional[
             if method:
                 methods.append(method)
     
-    # Extract superclasses
+                          
     superclasses = node.child_by_field_name('superclasses')
     extends = None
     if superclasses:
-        # Get first superclass name
+                                   
         for child in superclasses.named_children:
             if child.type == 'identifier':
                 extends = _get_node_text(child, source_code)
@@ -463,7 +460,7 @@ def _extract_python_class_from_node(node: Node, source_code: bytes) -> Optional[
     return ClassDefinition(
         name=name,
         methods=methods,
-        properties=[],  # Python properties are methods with @property decorator
+        properties=[],                                                          
         extends=extends,
         implements=None,
         isExported=False,
@@ -473,7 +470,7 @@ def _extract_python_class_from_node(node: Node, source_code: bytes) -> Optional[
 
 
 def _extract_python_method_from_node(node: Node, source_code: bytes) -> Optional[MethodDefinition]:
-    """Extract Python method from function_definition node"""
+    
     name_node = node.child_by_field_name('name')
     if not name_node:
         return None
@@ -481,7 +478,7 @@ def _extract_python_method_from_node(node: Node, source_code: bytes) -> Optional
     name = _get_node_text(name_node, source_code)
     parameters = _extract_python_parameters(node.child_by_field_name('parameters'), source_code)
     
-    # Check for async
+                     
     is_async = False
     for child in node.named_children:
         if child.type == 'async':
@@ -493,17 +490,17 @@ def _extract_python_method_from_node(node: Node, source_code: bytes) -> Optional
         parameters=parameters,
         returnType=None,
         isAsync=is_async,
-        isPublic=True,  # Python methods are public by default
-        isStatic=False,  # Would need to check for @staticmethod decorator
+        isPublic=True,                                        
+        isStatic=False,                                                   
         startLine=node.start_point[0] + 1,
         endLine=node.end_point[0] + 1
     )
 
 
-# Utility functions
+                   
 
 def _extract_parameters(params_node: Optional[Node], source_code: bytes) -> List[Parameter]:
-    """Extract parameters from parameters node"""
+    
     if not params_node:
         return []
     
@@ -519,7 +516,7 @@ def _extract_parameters(params_node: Optional[Node], source_code: bytes) -> List
 
 
 def _extract_python_parameters(params_node: Optional[Node], source_code: bytes) -> List[Parameter]:
-    """Extract Python parameters"""
+    
     if not params_node:
         return []
     
@@ -535,7 +532,7 @@ def _extract_python_parameters(params_node: Optional[Node], source_code: bytes) 
 
 
 def _extract_parameter_from_node(node: Node, source_code: bytes) -> Optional[Parameter]:
-    """Extract parameter from parameter node"""
+    
     pattern = node.child_by_field_name('pattern') or node
     name_node = pattern.child_by_field_name('name') or pattern
     
@@ -560,7 +557,7 @@ def _extract_parameter_from_node(node: Node, source_code: bytes) -> Optional[Par
 
 
 def _extract_python_parameter_from_node(node: Node, source_code: bytes) -> Optional[Parameter]:
-    """Extract Python parameter"""
+    
     name_node = node.child_by_field_name('name') or node
     name = _get_node_text(name_node, source_code)
     
@@ -582,12 +579,12 @@ def _extract_python_parameter_from_node(node: Node, source_code: bytes) -> Optio
 
 
 def _extract_return_type(node: Node, language: str, source_code: bytes) -> Optional[str]:
-    """Extract return type annotation"""
+    
     type_node = node.child_by_field_name('return_type')
     if type_node:
         return _get_node_text(type_node, source_code)
     
-    # For arrow functions, check for type annotation
+                                                    
     if node.type == 'arrow_function':
         for child in node.named_children:
             if child.type == 'type_annotation':
@@ -597,7 +594,7 @@ def _extract_return_type(node: Node, language: str, source_code: bytes) -> Optio
 
 
 def _extract_function_body(node: Node, source_code: bytes) -> str:
-    """Extract function body"""
+    
     body_node = node.child_by_field_name('body')
     if body_node:
         return _get_node_text(body_node, source_code)
@@ -605,8 +602,8 @@ def _extract_function_body(node: Node, source_code: bytes) -> str:
 
 
 def _extract_export_from_node(node: Node, source_code: bytes) -> Optional[ExportStatement]:
-    """Extract export statement"""
-    # Find what's being exported
+    
+                                
     for child in node.named_children:
         if child.type in ('function_declaration', 'class_declaration', 'variable_declaration'):
             name_node = child.child_by_field_name('name')
@@ -624,7 +621,7 @@ def _extract_export_from_node(node: Node, source_code: bytes) -> Optional[Export
 
 
 def _extract_nodes_by_type(root: Node, node_type: str):
-    """Extract all nodes of a specific type from tree"""
+    
     if root.type == node_type:
         yield root
     
@@ -633,28 +630,28 @@ def _extract_nodes_by_type(root: Node, node_type: str):
 
 
 def _get_node_text(node: Optional[Node], source_code: bytes) -> str:
-    """Get text content of a node"""
+    
     if not node:
         return ""
     return source_code[node.start_byte:node.end_byte].decode('utf-8', errors='ignore')
 
 
 def _has_modifier(node: Node, modifier: str, source_code: bytes) -> bool:
-    """Check if node has a modifier"""
+    
     node_text = _get_node_text(node, source_code)
     return modifier in node_text.lower()
 
 
 def _has_export_modifier(node: Node, source_code: bytes) -> bool:
-    """Check if node has export modifier"""
-    # Check parent for export
+    
+                             
     current = node
     while current:
         node_text = _get_node_text(current, source_code)
         if 'export' in node_text:
             return True
-        # Tree-sitter nodes don't have parent, so we check siblings/parent context
-        # This is simplified - would need proper tree traversal
+                                                                                  
+                                                               
         break
     return False
 

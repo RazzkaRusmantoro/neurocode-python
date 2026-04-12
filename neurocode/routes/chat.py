@@ -1,7 +1,3 @@
-"""
-Chat API: OpenAI chat with persistence in MongoDB.
-- GET /chat/list, GET /chat/{id}, POST /chat (create), POST /chat/{id}/message (send + persist).
-"""
 import os
 from openai import OpenAI
 from fastapi import APIRouter, HTTPException, Query
@@ -21,7 +17,7 @@ def _get_openai_client() -> OpenAI | None:
     return OpenAI(api_key=api_key.strip())
 
 
-# ---------- Persisted chat routes (list, get, create, send message) ----------
+                                                                               
 
 
 @router.get("/list")
@@ -29,14 +25,14 @@ async def list_chats(
     user_id: str = Query(..., description="Current user id"),
     context_id: str | None = Query(None, description="Scope to a documentation context (e.g. repo-doc:org:repo, onboarding:org:pathSlug)"),
 ) -> dict:
-    """List chats for the user, optionally filtered by context_id (per-documentation). Most recent first."""
+    
     if not mongodb_service:
         raise HTTPException(status_code=503, detail="Database not configured")
     result = mongodb_service.list_chats_by_user(user_id, context_id=context_id)
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to list chats"))
     chats = result.get("chats") or []
-    # Serialize updatedAt for JSON
+                                  
     for c in chats:
         u = c.get("updatedAt")
         if hasattr(u, "isoformat"):
@@ -49,7 +45,7 @@ async def get_chat(
     chat_id: str,
     user_id: str = Query(..., description="Current user id"),
 ) -> dict:
-    """Get a single chat with all messages."""
+    
     if not mongodb_service:
         raise HTTPException(status_code=503, detail="Database not configured")
     result = mongodb_service.get_chat(chat_id, user_id)
@@ -60,7 +56,7 @@ async def get_chat(
 
 @router.post("")
 async def create_chat(body: CreateChatRequest) -> dict:
-    """Create a new chat and return it."""
+    
     if not mongodb_service:
         raise HTTPException(status_code=503, detail="Database not configured")
     result = mongodb_service.create_chat(
@@ -75,7 +71,7 @@ async def create_chat(body: CreateChatRequest) -> dict:
 
 @router.post("/{chat_id}/message")
 async def send_message(chat_id: str, body: SendMessageRequest) -> dict:
-    """Append user message, call OpenAI, append assistant reply, persist, return reply and full chat."""
+    
     if not mongodb_service:
         raise HTTPException(status_code=503, detail="Database not configured")
     client = _get_openai_client()
@@ -86,7 +82,7 @@ async def send_message(chat_id: str, body: SendMessageRequest) -> dict:
     if not message:
         return {"reply": "Please send a non-empty message.", "chat": None}
 
-    # Load chat and build history for OpenAI
+                                            
     get_result = mongodb_service.get_chat(chat_id, body.user_id)
     if not get_result.get("success"):
         raise HTTPException(status_code=404, detail=get_result.get("error", "Chat not found"))
@@ -99,7 +95,7 @@ async def send_message(chat_id: str, body: SendMessageRequest) -> dict:
         if content and role in ("user", "assistant"):
             history_for_llm.append({"role": role, "content": content})
 
-    # Build system message: include full documentation if provided (doc + chat history each time)
+                                                                                                 
     system_content = "You are a helpful assistant. Answer concisely."
     if (body.documentation_content or "").strip():
         system_content = (
@@ -127,7 +123,7 @@ async def send_message(chat_id: str, body: SendMessageRequest) -> dict:
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"OpenAI request failed: {e}")
 
-    # Title from first user message (preview)
+                                             
     title_if_first = message[:36].strip() + ("…" if len(message) > 36 else "") if message else None
     append_result = mongodb_service.append_chat_messages(
         chat_id,
@@ -144,15 +140,12 @@ async def send_message(chat_id: str, body: SendMessageRequest) -> dict:
     }
 
 
-# ---------- Legacy: stateless POST /chat (no persistence) ----------
+                                                                     
 
 
 @router.post("/send")
 async def chat_legacy(request: ChatRequest) -> dict:
-    """
-    Stateless chat: history + current message, returns { "reply": "..." }.
-    Does not persist. Use POST /chat and POST /chat/{id}/message for persisted chats.
-    """
+    
     client = _get_openai_client()
     if not client:
         raise HTTPException(

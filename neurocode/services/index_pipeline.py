@@ -1,7 +1,3 @@
-"""
-Shared RAG index pipeline: fetch → parse → chunk → save → vectorize.
-Used by the documentation API and by the background worker.
-"""
 from typing import Dict, Any, Optional
 
 from neurocode.config import (
@@ -14,12 +10,12 @@ from neurocode.config import (
 
 
 def _log(msg: str) -> None:
-    """Print with flush so logs appear immediately in worker terminal."""
+    
     print(msg, flush=True)
 
 
 def _sanitize_name(name: str) -> str:
-    """Sanitize name for use in collection name."""
+    
     if not name:
         return ""
     sanitized = name.replace(" ", "_").replace("/", "_").replace(".", "_").replace("-", "_")
@@ -34,7 +30,7 @@ def build_collection_name(
     repository_name: Optional[str],
     branch: str,
 ) -> str:
-    """Build Qdrant collection name from org/repo/branch. Same logic used by run_index_pipeline."""
+    
     if not organization_short_id or not repository_name:
         raise ValueError("organization_short_id and repository_name are required for collection naming")
     org_name_safe = _sanitize_name(organization_name or organization_short_id)
@@ -55,16 +51,13 @@ async def run_index_pipeline(
     repository_id: Optional[str] = None,
     repository_name: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """
-    Run the full RAG index pipeline: fetch files → parse → chunk → save → vectorize.
-    Raises ValueError if required fields for collection naming are missing.
-    """
+    
     _log("")
     _log("=" * 60)
     _log("INDEX PIPELINE (RAG)")
     _log("=" * 60)
     _log(f"Repository: {repo_full_name}")
-    # Use repo's default branch when none specified or when main/master was used as placeholder
+                                                                                               
     if not branch or branch.strip().lower() in ("main", "master"):
         resolved_branch = await github_fetcher.get_default_branch(repo_full_name, github_token)
         if resolved_branch:
@@ -78,7 +71,7 @@ async def run_index_pipeline(
     _log("=" * 60)
     path = target or ""
 
-    # Step 1: Fetch repository files
+                                    
     _log("")
     _log("[Step 1/5] Fetching files from GitHub...")
     files = await github_fetcher.fetch_repository_files(
@@ -97,7 +90,7 @@ async def run_index_pipeline(
             "branch": branch,
         }
 
-    # Step 2 & 3: Parse and chunk
+                                 
     _log("")
     _log("[Step 2/5] Parsing code structure...")
     _log("[Step 3/5] Creating semantic chunks...")
@@ -115,7 +108,7 @@ async def run_index_pipeline(
     total_chunks = meta.get("totalChunks", 0)
     _log(f"✓ Parsed {total_fns} functions, {total_cls} classes")
     _log(f"✓ Created {total_chunks} chunks")
-    # Log what got chunked (per-file summary from chunks)
+                                                         
     chunks_list = analysis_results.get("chunks", [])
     if chunks_list:
         by_file: Dict[str, list] = {}
@@ -129,8 +122,8 @@ async def run_index_pipeline(
             symbols = by_file[fp]
             _log(f"  {fp}: {len(symbols)} chunks ({', '.join(symbols[:5])}{'...' if len(symbols) > 5 else ''})")
 
-    # Enrich chunks with summary + keywords for retrieval (if LLM available)
-    # TEMP: comment out the block below to disable Claude summary/keywords per chunk
+                                                                            
+                                                                                    
     if chunks_list and llm_service:
         _log("")
         _log("[Step 3b/5] Enriching chunks with summary and keywords (Claude)...")
@@ -140,7 +133,7 @@ async def run_index_pipeline(
         except Exception as e:
             _log(f"⚠ Enrichment failed: {e} (continuing without summary/keywords)")
 
-    # Step 4: Save locally
+                          
     _log("")
     _log("[Step 4/5] Saving results to local storage...")
     saved_paths = storage_service.save_analysis_results(
@@ -150,7 +143,7 @@ async def run_index_pipeline(
     )
     _log(f"✓ Results saved to: {saved_paths.get('directory', 'N/A')}")
 
-    # Step 5: Build collection name and vectorize
+                                                 
     collection_name = build_collection_name(
         organization_name, organization_short_id, repository_name, branch
     )
